@@ -42,5 +42,10 @@ class Tag(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, nullable=False, index=True)
+    parent_tag_id = Column(
+        Integer, ForeignKey("tags.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     images = relationship("Image", secondary=image_tags, back_populates="tags")
+    parent = relationship("Tag", remote_side="Tag.id", back_populates="children")
+    children = relationship("Tag", back_populates="parent")

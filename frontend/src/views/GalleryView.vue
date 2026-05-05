@@ -79,21 +79,64 @@
 
       <!-- Tag filter -->
       <div class="mb-4">
-        <label class="block text-xs text-gray-400 mb-1">Filter by Tags</label>
-        <div class="flex flex-wrap gap-1 max-h-48 overflow-y-auto">
+        <label class="block text-xs text-gray-400 mb-1 flex items-center justify-between">
+          <span>
+            Filter by Tags
+            <span class="text-gray-500">({{ visibleTagCount }} / {{ store.allTags.length }})</span>
+          </span>
           <button
-            v-for="tag in store.allTags"
-            :key="tag.id"
-            @click="toggleTagFilter(tag.name)"
-            :class="[
-              'px-2 py-0.5 rounded text-xs transition-colors',
-              store.selectedTags.includes(tag.name)
-                ? 'bg-purple-600 text-white'
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600',
-            ]"
+            @click="tagViewMode = tagViewMode === 'tree' ? 'flat' : 'tree'"
+            class="text-gray-500 hover:text-gray-300 normal-case tracking-normal"
+            :title="tagViewMode === 'tree' ? 'Switch to flat view' : 'Switch to tree view'"
           >
-            {{ tag.name }} ({{ tag.image_count }})
+            {{ tagViewMode === 'tree' ? '🌳' : '☰' }}
           </button>
+        </label>
+        <input
+          v-model="tagFilterQuery"
+          type="text"
+          placeholder="Search tags…"
+          class="w-full bg-gray-700 border border-gray-600 text-white rounded px-2 py-1 text-sm mb-2"
+        />
+        <div class="max-h-64 overflow-y-auto">
+          <!-- Flat view (or fallback when search is active) -->
+          <div v-if="tagViewMode === 'flat' || tagFilterQuery" class="flex flex-wrap gap-1">
+            <button
+              v-for="tag in flatTags"
+              :key="tag.id"
+              @click="toggleTagFilter(tag.name)"
+              :class="tagButtonClass(tag)"
+            >
+              {{ tag.name }} ({{ tag.image_count }})
+            </button>
+            <span v-if="!flatTags.length" class="text-xs text-gray-500 italic">No matching tags</span>
+          </div>
+
+          <!-- Tree view -->
+          <div v-else class="space-y-1">
+            <div v-for="group in tagTree" :key="group.parent ? group.parent.id : 'orphans'">
+              <!-- Parent row (if there is one) -->
+              <button
+                v-if="group.parent"
+                @click="toggleTagFilter(group.parent.name)"
+                :class="[tagButtonClass(group.parent), 'font-semibold w-full text-left']"
+              >
+                {{ group.parent.name }} ({{ group.parent.image_count }})
+              </button>
+              <!-- Children indented -->
+              <div :class="['flex flex-wrap gap-1', group.parent ? 'ml-3 mt-1' : '']">
+                <button
+                  v-for="tag in group.children"
+                  :key="tag.id"
+                  @click="toggleTagFilter(tag.name)"
+                  :class="tagButtonClass(tag)"
+                >
+                  {{ tag.name }} ({{ tag.image_count }})
+                </button>
+              </div>
+            </div>
+            <span v-if="!tagTree.length" class="text-xs text-gray-500 italic">No tags yet</span>
+          </div>
         </div>
       </div>
 
@@ -177,7 +220,80 @@ import ImageCard from '../components/ImageCard.vue'
 
 const store = useImagesStore()
 const bulkTagInput = ref('')
+const tagFilterQuery = ref('')
+const tagViewMode = ref('tree')   // 'tree' | 'flat'
 const galleryEl = ref(null)
+
+function matchesQuery(tag, q) {
+  if (!q) return true
+  return tag.name.toLowerCase().includes(q)
+}
+
+// Flat view: filter, then pin selected, then sort by image count desc.
+const flatTags = computed(() => {
+  const q = tagFilterQuery.value.trim().toLowerCase()
+  const selected = new Set(store.selectedTags)
+  const pinned = []
+  const rest = []
+  for (const tag of store.allTags) {
+    if (selected.has(tag.name)) {
+      pinned.push(tag)
+    } else if (matchesQuery(tag, q)) {
+      rest.push(tag)
+    }
+  }
+  rest.sort((a, b) => (b.image_count || 0) - (a.image_count || 0))
+  return [...pinned, ...rest]
+})
+
+// Tree view: group children under their parent. Orphan tags (no parent and
+// not pointed at by anyone) appear in a final unparented group.
+const tagTree = computed(() => {
+  const byId = new Map(store.allTags.map((t) => [t.id, t]))
+  const groups = new Map()  // parent_id -> { parent, children: [] }
+  const orphans = []
+
+  for (const tag of store.allTags) {
+    if (tag.parent_tag_id && byId.has(tag.parent_tag_id)) {
+      const pid = tag.parent_tag_id
+      if (!groups.has(pid)) {
+        groups.set(pid, { parent: byId.get(pid), children: [] })
+      }
+      groups.get(pid).children.push(tag)
+    }
+  }
+
+  // A tag is an orphan only if it isn't a parent in `groups` and has no parent of its own.
+  for (const tag of store.allTags) {
+    if (groups.has(tag.id)) continue          // is a parent → already represented
+    if (tag.parent_tag_id) continue            // is a child → handled above
+    orphans.push(tag)
+  }
+
+  const sortByCount = (a, b) => (b.image_count || 0) - (a.image_count || 0)
+
+  const groupArr = [...groups.values()]
+  for (const g of groupArr) g.children.sort(sortByCount)
+  groupArr.sort((a, b) => (b.parent.image_count || 0) - (a.parent.image_count || 0))
+  orphans.sort(sortByCount)
+
+  if (orphans.length) groupArr.push({ parent: null, children: orphans })
+  return groupArr
+})
+
+const visibleTagCount = computed(() => {
+  if (tagViewMode.value === 'flat' || tagFilterQuery.value) return flatTags.value.length
+  return tagTree.value.reduce((n, g) => n + g.children.length + (g.parent ? 1 : 0), 0)
+})
+
+function tagButtonClass(tag) {
+  return [
+    'px-2 py-0.5 rounded text-xs transition-colors',
+    store.selectedTags.includes(tag.name)
+      ? 'bg-purple-600 text-white'
+      : 'bg-gray-700 text-gray-300 hover:bg-gray-600',
+  ]
+}
 
 onMounted(() => {
   store.fetchImages(true)

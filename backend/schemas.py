@@ -14,8 +14,14 @@ class TagCreate(TagBase):
 class Tag(TagBase):
     id: int
     image_count: Optional[int] = 0
+    parent_tag_id: Optional[int] = None
+    parent_name: Optional[str] = None
 
     model_config = {"from_attributes": True}
+
+
+class TagParentUpdate(BaseModel):
+    parent_tag_id: Optional[int] = None
 
 
 class ImageBase(BaseModel):

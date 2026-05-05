@@ -21,6 +21,16 @@ def ensure_thumbnail_dir():
     THUMBNAIL_DIR.mkdir(exist_ok=True)
 
 
+def find_sidecar(filepath: Path) -> Optional[Path]:
+    """Locate a sidecar JSON for an image. Prefers `{stem}.json` (e.g.
+    `foo.json` next to `foo.png`), falls back to `{filename}.json`
+    (e.g. `foo.png.json`) for ComfyUI-style outputs."""
+    for candidate in (filepath.with_suffix(".json"), filepath.parent / (filepath.name + ".json")):
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def parse_sidecar(sidecar_path: Path) -> Dict[str, Any]:
     """Parse a sidecar JSON file and extract structured metadata."""
     try:
@@ -32,8 +42,17 @@ def parse_sidecar(sidecar_path: Path) -> Dict[str, Any]:
 
     result: Dict[str, Any] = {"_raw": data}
 
-    # Extract date from common fields
-    for date_key in ("date", "created_at", "timestamp", "creation_time", "DateTime"):
+    # Extract date from common fields. Mage and similar tools use
+    # "date_created"; other tools use "created" / "created_at".
+    for date_key in (
+        "date_created",
+        "created_at",
+        "created",
+        "date",
+        "timestamp",
+        "creation_time",
+        "DateTime",
+    ):
         val = data.get(date_key)
         if val:
             try:
@@ -46,6 +65,10 @@ def parse_sidecar(sidecar_path: Path) -> Dict[str, Any]:
                         "%Y-%m-%d %H:%M:%S",
                         "%Y:%m:%d %H:%M:%S",
                         "%Y-%m-%d",
+                        "%b %d, %Y",        # Mage: "Jan 30, 2025"
+                        "%B %d, %Y",        # "January 30, 2025"
+                        "%m/%d/%Y",
+                        "%Y/%m/%d",
                     ):
                         try:
                             result["date_taken"] = datetime.strptime(str(val).strip(), fmt)
@@ -126,99 +149,116 @@ def scan_directory(db: Session, directory: str) -> Dict[str, int]:
     if not directory_path.exists():
         raise ValueError(f"Directory does not exist: {directory}")
 
-    stats = {"scanned": 0, "added": 0, "updated": 0}
-    image_ids_processed = []
+    logger.info(f"Scan starting: {directory_path}")
 
+    # First pass: enumerate candidate image files so we can report progress.
+    candidates: list[Path] = []
     for root, dirs, files in os.walk(directory_path):
-        # Skip hidden directories
         dirs[:] = [d for d in dirs if not d.startswith(".")]
         for fname in files:
-            ext = Path(fname).suffix.lower()
-            if ext not in IMAGE_EXTENSIONS:
-                continue
+            if Path(fname).suffix.lower() in IMAGE_EXTENSIONS:
+                candidates.append(Path(root) / fname)
 
-            filepath = Path(root) / fname
-            stats["scanned"] += 1
+    total = len(candidates)
+    logger.info(f"Found {total} image files under {directory_path}")
 
-            sidecar_path = filepath.parent / (filepath.name + ".json")
-            sidecar_meta: Dict[str, Any] = {}
-            sidecar_raw: Optional[str] = None
-            if sidecar_path.exists():
-                sidecar_meta = parse_sidecar(sidecar_path)
-                raw = sidecar_meta.pop("_raw", None)
-                if raw is not None:
-                    sidecar_raw = json.dumps(raw)
+    stats = {"scanned": 0, "added": 0, "updated": 0, "with_sidecar": 0}
+    image_ids_processed = []
+    progress_every = max(1, min(50, total // 20)) if total else 1
 
+    for idx, filepath in enumerate(candidates, 1):
+        fname = filepath.name
+        root_str = str(filepath.parent)
+        stats["scanned"] += 1
+
+        sidecar_path = find_sidecar(filepath)
+        sidecar_meta: Dict[str, Any] = {}
+        sidecar_raw: Optional[str] = None
+        if sidecar_path is not None:
+            sidecar_meta = parse_sidecar(sidecar_path)
+            raw = sidecar_meta.pop("_raw", None)
+            if raw is not None:
+                sidecar_raw = json.dumps(raw)
+            stats["with_sidecar"] += 1
+            logger.debug(f"sidecar: {sidecar_path.name} -> {filepath.name}")
+
+        try:
+            file_size = filepath.stat().st_size
+        except Exception:
+            file_size = None
+
+        width, height = get_image_dimensions(filepath)
+        date_taken = sidecar_meta.get("date_taken")
+        if date_taken is None:
             try:
-                file_size = filepath.stat().st_size
+                mtime = filepath.stat().st_mtime
+                date_taken = datetime.utcfromtimestamp(mtime)
             except Exception:
-                file_size = None
+                pass
 
-            width, height = get_image_dimensions(filepath)
-            date_taken = sidecar_meta.get("date_taken")
-            if date_taken is None:
-                try:
-                    mtime = filepath.stat().st_mtime
-                    date_taken = datetime.utcfromtimestamp(mtime)
-                except Exception:
-                    pass
+        # Build thumbnail path
+        thumb_name = f"{filepath.stem}_{hash(str(filepath)) & 0xFFFFFF:06x}.jpg"
+        thumb_path = THUMBNAIL_DIR / thumb_name
 
-            # Build thumbnail path
-            thumb_name = f"{filepath.stem}_{hash(str(filepath)) & 0xFFFFFF:06x}.jpg"
-            thumb_path = THUMBNAIL_DIR / thumb_name
+        existing = db.query(models.Image).filter(
+            models.Image.filepath == str(filepath)
+        ).first()
 
-            existing = db.query(models.Image).filter(
-                models.Image.filepath == str(filepath)
-            ).first()
+        if existing:
+            existing.filename = fname
+            existing.directory = root_str
+            existing.width = width
+            existing.height = height
+            existing.file_size = file_size
+            existing.date_taken = date_taken
+            existing.updated_at = datetime.utcnow()
+            existing.sidecar_data = sidecar_raw
+            existing.prompt = sidecar_meta.get("prompt")
+            existing.description = sidecar_meta.get("description")
+            existing.model = sidecar_meta.get("model")
+            existing.thumbnail_path = str(thumb_path)
+            db.commit()
+            db.refresh(existing)
+            image_ids_processed.append(existing.id)
+            stats["updated"] += 1
+        else:
+            new_image = models.Image(
+                filename=fname,
+                filepath=str(filepath),
+                directory=root_str,
+                width=width,
+                height=height,
+                file_size=file_size,
+                date_taken=date_taken,
+                sidecar_data=sidecar_raw,
+                prompt=sidecar_meta.get("prompt"),
+                description=sidecar_meta.get("description"),
+                model=sidecar_meta.get("model"),
+                thumbnail_path=str(thumb_path),
+            )
+            db.add(new_image)
+            db.commit()
+            db.refresh(new_image)
+            image_ids_processed.append(new_image.id)
+            stats["added"] += 1
 
-            if existing:
-                existing.filename = fname
-                existing.directory = str(Path(root))
-                existing.width = width
-                existing.height = height
-                existing.file_size = file_size
-                existing.date_taken = date_taken
-                existing.updated_at = datetime.utcnow()
-                existing.sidecar_data = sidecar_raw
-                existing.prompt = sidecar_meta.get("prompt")
-                existing.description = sidecar_meta.get("description")
-                existing.model = sidecar_meta.get("model")
-                existing.thumbnail_path = str(thumb_path)
-                db.commit()
-                db.refresh(existing)
-                image_ids_processed.append(existing.id)
-                stats["updated"] += 1
-            else:
-                new_image = models.Image(
-                    filename=fname,
-                    filepath=str(filepath),
-                    directory=str(Path(root)),
-                    width=width,
-                    height=height,
-                    file_size=file_size,
-                    date_taken=date_taken,
-                    sidecar_data=sidecar_raw,
-                    prompt=sidecar_meta.get("prompt"),
-                    description=sidecar_meta.get("description"),
-                    model=sidecar_meta.get("model"),
-                    thumbnail_path=str(thumb_path),
-                )
-                db.add(new_image)
-                db.commit()
-                db.refresh(new_image)
-                image_ids_processed.append(new_image.id)
-                stats["added"] += 1
+        # Thumbnail generation is deferred — the /api/images/{id}/thumbnail
+        # endpoint builds and caches them lazily on first request.
 
-            # Generate thumbnail lazily
-            if not thumb_path.exists():
-                create_thumbnail(filepath, thumb_path)
+        if idx % progress_every == 0 or idx == total:
+            logger.info(
+                f"  [{idx}/{total}] added={stats['added']} "
+                f"updated={stats['updated']} sidecars={stats['with_sidecar']}"
+            )
 
     # Run auto-tagging on processed images
     if image_ids_processed:
+        logger.info(f"Auto-tagging {len(image_ids_processed)} images...")
         try:
             from utils.tfidf import auto_tag_images
             auto_tag_images(db, image_ids=image_ids_processed)
         except Exception as e:
             logger.warning(f"Auto-tagging failed: {e}")
 
+    logger.info(f"Scan complete: {stats}")
     return stats
