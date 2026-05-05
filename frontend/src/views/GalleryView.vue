@@ -284,35 +284,33 @@
         <p class="text-gray-500 text-sm">Use "Scan Directory" to add images.</p>
       </div>
 
-      <!-- Date-grouped grid -->
+      <!-- Continuous grid with inline date headers -->
       <template v-else>
-        <div v-for="(group, date) in groupedImages" :key="date" class="mb-8">
-          <h3 class="text-sm font-semibold text-gray-400 mb-3 uppercase tracking-wider">
-            {{ formatDate(date) }}
-          </h3>
-          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 items-end">
+          <div v-for="entry in imagesWithDateLabels" :key="entry.img.id" class="flex flex-col">
+            <h3
+              v-if="entry.dateLabel"
+              class="text-xs font-semibold text-gray-400 mb-1 uppercase tracking-wider truncate"
+              :title="entry.dateLabel"
+            >
+              {{ entry.dateLabel }}
+            </h3>
             <ImageCard
-              v-for="img in group"
-              :key="img.id"
-              :image="img"
-              :selected="store.selectedImageIds.includes(img.id)"
-              @toggle-select="store.toggleImageSelection(img.id)"
-              @rate="(r) => store.rateImage(img.id, r)"
+              :image="entry.img"
+              :selected="store.selectedImageIds.includes(entry.img.id)"
+              @toggle-select="store.toggleImageSelection(entry.img.id)"
+              @rate="(r) => store.rateImage(entry.img.id, r)"
             />
           </div>
         </div>
 
-        <!-- Load More -->
+        <!-- Infinite-scroll sentinel + status -->
+        <div ref="sentinelEl" aria-hidden="true" class="h-1"></div>
         <div class="flex justify-center mt-6 pb-8">
-          <button
-            v-if="store.page < store.pages"
-            @click="store.fetchMoreImages()"
-            :disabled="store.loading"
-            class="bg-gray-700 hover:bg-gray-600 text-white px-6 py-2 rounded-lg disabled:opacity-50 transition-colors"
-          >
-            {{ store.loading ? 'Loading…' : `Load More (${store.total - store.images.length} remaining)` }}
-          </button>
-          <p v-else class="text-gray-500 text-sm">All {{ store.total }} images loaded</p>
+          <p v-if="store.loading" class="text-gray-500 text-sm">Loading more…</p>
+          <p v-else-if="store.page >= store.pages" class="text-gray-500 text-sm">
+            All {{ store.total }} images loaded
+          </p>
         </div>
       </template>
     </main>
@@ -320,7 +318,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useImagesStore } from '../stores/images.js'
 import { useProjectsStore } from '../stores/projects.js'
 import ImageCard from '../components/ImageCard.vue'
@@ -333,7 +331,9 @@ const tagFilterQuery = ref('')
 const tagViewMode = ref('tree')   // 'tree' | 'flat'
 const bulkRemoveTagInput = ref('')
 const galleryEl = ref(null)
+const sentinelEl = ref(null)
 const showBulkProjectModal = ref(false)
+let observer = null
 
 // Date tree state — default current year + month expanded
 const today = new Date()
@@ -415,10 +415,37 @@ function tagButtonClass(tag) {
 }
 
 onMounted(() => {
+  observer = new IntersectionObserver(
+    async (entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue
+        if (store.loading || store.page >= store.pages) continue
+        await store.fetchMoreImages()
+        // Re-observe so a still-intersecting sentinel (short page, big viewport)
+        // triggers another fetch instead of getting stuck.
+        if (sentinelEl.value && observer) {
+          observer.unobserve(sentinelEl.value)
+          observer.observe(sentinelEl.value)
+        }
+      }
+    },
+    { root: galleryEl.value, rootMargin: '600px' },
+  )
+
   store.fetchImages(true)
   store.fetchAllTags()
   store.fetchDates()
   projectsStore.fetchProjects()
+})
+
+watch(sentinelEl, (el, oldEl) => {
+  if (oldEl) observer?.unobserve(oldEl)
+  if (el) observer?.observe(el)
+})
+
+onBeforeUnmount(() => {
+  observer?.disconnect()
+  observer = null
 })
 
 async function onBulkAssigned() {
@@ -511,14 +538,17 @@ async function doBulkThumbsDown() {
   store.clearSelection()
 }
 
-const groupedImages = computed(() => {
-  const groups = {}
-  for (const img of store.images) {
+// Flat list with a dateLabel set on the first image of each new date run, so
+// the grid flows continuously and dates render as headers above the boundary
+// image rather than forcing a row break.
+const imagesWithDateLabels = computed(() => {
+  let lastDate = null
+  return store.images.map((img) => {
     const date = img.date_taken ? img.date_taken.split('T')[0] : 'Unknown Date'
-    if (!groups[date]) groups[date] = []
-    groups[date].push(img)
-  }
-  return groups
+    const showLabel = date !== lastDate
+    lastDate = date
+    return { img, dateLabel: showLabel ? formatDate(date) : null }
+  })
 })
 
 function formatDate(dateStr) {

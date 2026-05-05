@@ -32,7 +32,7 @@ export const useImagesStore = defineStore('images', {
       try {
         const params = {
           page: this.page,
-          limit: 50,
+          limit: 100,
           sort_by: this.sortBy,
           sort_dir: this.sortDir,
           show_hidden: this.showHidden,
@@ -61,7 +61,7 @@ export const useImagesStore = defineStore('images', {
       try {
         const params = {
           page: this.page + 1,
-          limit: 50,
+          limit: 100,
           sort_by: this.sortBy,
           sort_dir: this.sortDir,
           show_hidden: this.showHidden,
