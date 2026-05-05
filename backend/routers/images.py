@@ -105,6 +105,22 @@ def list_images(
     return schemas.ImageListResponse(items=items, total=total, page=page, pages=pages)
 
 
+@router.get("/dates", response_model=list)
+def get_dates(db: Session = Depends(get_db)):
+    results = (
+        db.query(
+            func.date(models.Image.date_taken).label("date"),
+            func.count(models.Image.id).label("count"),
+        )
+        .filter(models.Image.date_taken != None)
+        .filter(models.Image.hidden == False)
+        .group_by(func.date(models.Image.date_taken))
+        .order_by(func.date(models.Image.date_taken).desc())
+        .all()
+    )
+    return [{"date": str(row.date), "count": row.count} for row in results]
+
+
 @router.get("/{image_id}", response_model=schemas.Image)
 def get_image(image_id: int, db: Session = Depends(get_db)):
     img = db.query(models.Image).filter(models.Image.id == image_id).first()
@@ -225,6 +241,33 @@ def bulk_tag(body: schemas.BulkTagRequest, db: Session = Depends(get_db)):
 
     db.commit()
     return {"tagged": len(images), "tags_added": len(tags)}
+
+
+@router.post("/bulk-remove-tag", response_model=dict)
+def bulk_remove_tag(body: schemas.BulkRemoveTagRequest, db: Session = Depends(get_db)):
+    images = db.query(models.Image).filter(models.Image.id.in_(body.image_ids)).all()
+    tag = db.query(models.Tag).filter(models.Tag.name == body.tag_name).first()
+    if not tag:
+        return {"untagged": 0}
+    count = 0
+    for img in images:
+        if tag in img.tags:
+            img.tags.remove(tag)
+            count += 1
+    db.commit()
+    return {"untagged": count}
+
+
+@router.post("/bulk-rating", response_model=dict)
+def bulk_rating(body: schemas.BulkRatingRequest, db: Session = Depends(get_db)):
+    from datetime import datetime
+    images = db.query(models.Image).filter(models.Image.id.in_(body.image_ids)).all()
+    for img in images:
+        img.rating = body.rating
+        img.hidden = body.rating == -1
+        img.updated_at = datetime.utcnow()
+    db.commit()
+    return {"rated": len(images), "rating": body.rating}
 
 
 @router.post("/scan", response_model=dict)

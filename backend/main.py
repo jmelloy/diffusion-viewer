@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import inspect, text
 
 from database import engine, Base
-from routers import images, tags
+from routers import images, tags, projects
 
 
 def _migrate_schema():
@@ -52,6 +52,7 @@ app.add_middleware(
 
 app.include_router(images.router)
 app.include_router(tags.router)
+app.include_router(projects.router)
 
 # Serve thumbnails statically
 thumbnails_dir = Path("./thumbnails")

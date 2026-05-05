@@ -22,6 +22,7 @@ export const useImagesStore = defineStore('images', {
     sortDir: 'desc',
     selectedImageIds: [],
     allTags: [],
+    availableDates: [],
   }),
 
   actions: {
@@ -119,6 +120,25 @@ export const useImagesStore = defineStore('images', {
       await this.fetchAllTags()
     },
 
+    async bulkRemoveTag(tagName) {
+      if (!this.selectedImageIds.length || !tagName) return
+      await axios.post('/api/images/bulk-remove-tag', {
+        image_ids: this.selectedImageIds,
+        tag_name: tagName,
+      })
+      await this.fetchImages()
+      await this.fetchAllTags()
+    },
+
+    async bulkRate(rating) {
+      if (!this.selectedImageIds.length) return
+      await axios.post('/api/images/bulk-rating', {
+        image_ids: this.selectedImageIds,
+        rating,
+      })
+      await this.fetchImages()
+    },
+
     async scanDirectory(directory) {
       const res = await axios.post('/api/images/scan', { directory })
       await this.fetchImages(true)
@@ -129,6 +149,11 @@ export const useImagesStore = defineStore('images', {
     async fetchAllTags() {
       const res = await axios.get('/api/tags')
       this.allTags = res.data
+    },
+
+    async fetchDates() {
+      const res = await axios.get('/api/images/dates')
+      this.availableDates = res.data
     },
 
     toggleImageSelection(id) {

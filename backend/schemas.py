@@ -74,6 +74,16 @@ class BulkTagRequest(BaseModel):
     tag_names: List[str]
 
 
+class BulkRemoveTagRequest(BaseModel):
+    image_ids: List[int]
+    tag_name: str
+
+
+class BulkRatingRequest(BaseModel):
+    image_ids: List[int]
+    rating: int
+
+
 class TagsAddRequest(BaseModel):
     tag_names: List[str]
 
@@ -85,3 +95,26 @@ class SearchParams(BaseModel):
     date_from: Optional[datetime] = None
     date_to: Optional[datetime] = None
     show_hidden: bool = False
+
+
+class ProjectInfo(BaseModel):
+    slug: str
+    name: str
+    image_count: int
+
+
+class ProjectDetail(BaseModel):
+    slug: str
+    name: str
+    image_count: int
+    roles: Dict[str, List[Any]]
+
+
+class ProjectAssignRequest(BaseModel):
+    project: str
+    roles: List[str] = []
+
+
+class ProjectRemoveRequest(BaseModel):
+    project: str
+    roles: Optional[List[str]] = None
