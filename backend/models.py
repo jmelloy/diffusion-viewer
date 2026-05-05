@@ -1,51 +1,81 @@
 from datetime import datetime
-from sqlalchemy import (
-    Column, Integer, String, Boolean, DateTime, Text, ForeignKey, Table
-)
-from sqlalchemy.orm import relationship
-from database import Base
+from typing import List, Optional
 
-image_tags = Table(
-    "image_tags",
-    Base.metadata,
-    Column("image_id", Integer, ForeignKey("images.id"), primary_key=True),
-    Column("tag_id", Integer, ForeignKey("tags.id"), primary_key=True),
-)
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, Text
+from sqlmodel import Field, Relationship, SQLModel
 
 
-class Image(Base):
-    __tablename__ = "images"
+class ImageTag(SQLModel, table=True):
+    __tablename__ = "image_tags"
 
-    id = Column(Integer, primary_key=True, index=True)
-    filename = Column(String, nullable=False)
-    filepath = Column(String, unique=True, nullable=False)
-    directory = Column(String, nullable=False)
-    width = Column(Integer, nullable=True)
-    height = Column(Integer, nullable=True)
-    file_size = Column(Integer, nullable=True)
-    date_taken = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    rating = Column(Integer, default=0)  # -1=thumbs down, 0=unrated, 1=thumbs up, 2-5=stars
-    hidden = Column(Boolean, default=False)
-    sidecar_data = Column(Text, nullable=True)   # raw JSON as text
-    prompt = Column(Text, nullable=True)
-    description = Column(Text, nullable=True)
-    model = Column(String, nullable=True)
-    thumbnail_path = Column(String, nullable=True)
-
-    tags = relationship("Tag", secondary=image_tags, back_populates="images")
-
-
-class Tag(Base):
-    __tablename__ = "tags"
-
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, unique=True, nullable=False, index=True)
-    parent_tag_id = Column(
-        Integer, ForeignKey("tags.id", ondelete="SET NULL"), nullable=True, index=True
+    image_id: Optional[int] = Field(
+        default=None, foreign_key="images.id", primary_key=True
+    )
+    tag_id: Optional[int] = Field(
+        default=None, foreign_key="tags.id", primary_key=True
     )
 
-    images = relationship("Image", secondary=image_tags, back_populates="tags")
-    parent = relationship("Tag", remote_side="Tag.id", back_populates="children")
-    children = relationship("Tag", back_populates="parent")
+
+# Backwards-compatible alias for code that operated on the raw association table.
+image_tags = ImageTag.__table__
+
+
+class Image(SQLModel, table=True):
+    __tablename__ = "images"
+
+    id: Optional[int] = Field(default=None, primary_key=True, index=True)
+    filename: str = Field(nullable=False)
+    filepath: str = Field(unique=True, nullable=False)
+    directory: str = Field(nullable=False)
+    width: Optional[int] = None
+    height: Optional[int] = None
+    file_size: Optional[int] = None
+    date_taken: Optional[datetime] = None
+    created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
+    updated_at: Optional[datetime] = Field(
+        sa_column=Column(
+            DateTime,
+            default=datetime.utcnow,
+            onupdate=datetime.utcnow,
+        )
+    )
+    rating: int = Field(default=0)
+    hidden: bool = Field(default=False)
+    sidecar_data: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    prompt: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    description: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    model: Optional[str] = None
+    thumbnail_path: Optional[str] = None
+
+    tags: List["Tag"] = Relationship(
+        back_populates="images",
+        link_model=ImageTag,
+    )
+
+
+class Tag(SQLModel, table=True):
+    __tablename__ = "tags"
+
+    id: Optional[int] = Field(default=None, primary_key=True, index=True)
+    name: str = Field(unique=True, nullable=False, index=True)
+    parent_tag_id: Optional[int] = Field(
+        default=None,
+        sa_column=Column(
+            Integer,
+            ForeignKey("tags.id", ondelete="SET NULL"),
+            nullable=True,
+            index=True,
+        ),
+    )
+
+    images: List[Image] = Relationship(
+        back_populates="tags",
+        link_model=ImageTag,
+    )
+    parent: Optional["Tag"] = Relationship(
+        back_populates="children",
+        sa_relationship_kwargs={"remote_side": "Tag.id"},
+    )
+    children: List["Tag"] = Relationship(
+        back_populates="parent",
+    )
