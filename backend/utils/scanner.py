@@ -14,7 +14,7 @@ import schemas
 logger = logging.getLogger(__name__)
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
-THUMBNAIL_DIR = Path("./thumbnails")
+THUMBNAIL_DIR = Path(os.environ.get("THUMBNAIL_DIR", "./thumbnails"))
 
 
 def ensure_thumbnail_dir():
