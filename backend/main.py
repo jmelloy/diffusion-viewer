@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from database import engine, Base
-from routers import images, tags
+from routers import images, tags, projects
 
 
 @asynccontextmanager
@@ -31,6 +31,7 @@ app.add_middleware(
 
 app.include_router(images.router)
 app.include_router(tags.router)
+app.include_router(projects.router)
 
 # Serve thumbnails statically
 thumbnails_dir = Path("./thumbnails")
