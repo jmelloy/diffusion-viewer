@@ -28,6 +28,9 @@ def run_migrations() -> None:
     command.upgrade(cfg, "head")
 
 
+thumbnails_dir = Path(os.environ.get("THUMBNAIL_DIR", "./thumbnails"))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     run_migrations()
@@ -50,7 +53,6 @@ app.include_router(tags.router)
 app.include_router(projects.router)
 
 # Serve thumbnails statically
-thumbnails_dir = Path("./thumbnails")
 thumbnails_dir.mkdir(exist_ok=True)
 app.mount("/thumbnails", StaticFiles(directory=str(thumbnails_dir)), name="thumbnails")
 

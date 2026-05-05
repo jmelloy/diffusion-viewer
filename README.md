@@ -53,6 +53,59 @@ diffusion-viewer/
 
 ---
 
+## Docker
+
+The fastest way to run the full stack is with Docker Compose.
+
+### Quick start
+
+```bash
+# Create a local folder for your images (or point to an existing one — see below)
+mkdir images
+
+docker compose up --build
+```
+
+- Frontend: http://localhost:8065
+- Backend API / Swagger: http://localhost:8000/docs
+
+Once running, click **Scan Directory** in the UI and enter `/app/images` to index the mounted folder.
+
+### Mount a local images folder
+
+By default `docker-compose.yml` bind-mounts `./images` (relative to the repo root) to `/app/images` inside the backend container:
+
+```yaml
+volumes:
+  - ./images:/app/images
+```
+
+To point at a different folder on your host, edit that line:
+
+```yaml
+volumes:
+  - /mnt/nas/stable-diffusion/outputs:/app/images
+```
+
+Alternatively, switch to a named Docker volume (useful for remote hosts). In `docker-compose.yml`, comment out the bind-mount line and uncomment `images_data`:
+
+```yaml
+volumes:
+  # - ./images:/app/images
+  - images_data:/app/images
+```
+
+Then uncomment the `images_data:` entry under the top-level `volumes:` section as well.
+
+### Persisted data
+
+| Volume | Contents |
+|--------|----------|
+| `db_data` | SQLite database (`diffusion_viewer.db`) |
+| `thumbnails_data` | Generated 400 px thumbnails |
+
+---
+
 ## Getting started
 
 ### Backend
