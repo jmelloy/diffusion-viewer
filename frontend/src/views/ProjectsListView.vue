@@ -9,27 +9,36 @@
     <div v-else-if="!store.projects.length" class="text-gray-500 italic">
       No projects yet. Assign images to a project from the image detail view or use bulk actions.
     </div>
-    <div v-else class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-      <router-link
-        v-for="p in store.projects"
+    <div v-else class="space-y-1">
+      <ProjectNode
+        v-for="p in roots"
         :key="p.slug"
-        :to="`/projects/${p.slug}`"
-        class="bg-gray-800 hover:bg-gray-700 rounded-xl p-5 transition-colors group"
-      >
-        <div class="text-2xl mb-2">📁</div>
-        <h2 class="text-white font-semibold text-lg group-hover:text-purple-300 transition-colors capitalize">
-          {{ p.name }}
-        </h2>
-        <p class="text-gray-400 text-sm mt-1">{{ p.image_count }} image{{ p.image_count !== 1 ? 's' : '' }}</p>
-      </router-link>
+        :node="p"
+        :children-by-parent="childrenByParent"
+        :depth="0"
+      />
     </div>
   </div>
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
+import { onMounted, computed } from 'vue'
 import { useProjectsStore } from '../stores/projects.js'
+import ProjectNode from '../components/ProjectNode.vue'
 
 const store = useProjectsStore()
 onMounted(() => store.fetchProjects())
+
+const childrenByParent = computed(() => {
+  const map = {}
+  for (const p of store.projects) {
+    const key = p.parent_slug || ''
+    if (!map[key]) map[key] = []
+    map[key].push(p)
+  }
+  for (const arr of Object.values(map)) arr.sort((a, b) => a.slug.localeCompare(b.slug))
+  return map
+})
+
+const roots = computed(() => childrenByParent.value[''] || [])
 </script>

@@ -3,19 +3,13 @@ services:
     build: ./backend
     ports:
       - "8000:8000"
-    volumes:
-      # Bind-mount your local images folder so the scanner can reach them.
-      # Change ./images to any absolute path on your host, e.g. /mnt/nas/sd-outputs
-      - ./images:/app/images
-      # Alternative: use a named volume instead of a bind mount (uncomment both lines):
-      # - images_data:/app/images
-      - db_data:/app/data
-      - thumbnails_data:/app/thumbnails
     environment:
-      DATABASE_URL: sqlite:////app/data/diffusion_viewer.db
-      THUMBNAIL_DIR: /app/thumbnails
-    networks:
-      - app-network
+      - DATABASE_URL=sqlite:////data/diffusion_viewer.db
+    volumes:
+      - ./backend:/app
+      - backend-data:/data
+      - backend-thumbnails:/app/thumbnails
+    command: sh -c "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000"
     restart: unless-stopped
 
   frontend:
@@ -37,3 +31,18 @@ volumes:
   # images_data:
   db_data:
   thumbnails_data:
+    container_name: diffusion-viewer-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:////data/diffusion_viewer.db
+    volumes:
+      - ./backend:/app
+      - backend-data:/data
+      - backend-thumbnails:/app/thumbnails
+    command: sh -c "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000"
+    restart: unless-stopped
+
+volumes:
+  backend-data:
+  backend-thumbnails:

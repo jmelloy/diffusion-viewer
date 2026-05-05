@@ -1,90 +1,188 @@
 <template>
-  <div class="min-h-screen bg-gray-900 p-6">
-    <!-- Header -->
-    <div class="flex items-center gap-4 mb-6">
-      <router-link to="/" class="text-gray-400 hover:text-white transition-colors">← Gallery</router-link>
-      <h1 class="text-2xl font-bold text-white capitalize">{{ project?.name ?? slug }}</h1>
-      <span v-if="project" class="text-gray-400 text-sm">({{ project.image_count }} image{{ project.image_count !== 1 ? 's' : '' }})</span>
-    </div>
+  <div class="flex h-[calc(100vh-57px)] bg-gray-900">
+    <!-- Sidebar -->
+    <aside class="w-64 bg-gray-800 border-r border-gray-700 overflow-y-auto p-4 flex-shrink-0">
+      <div class="text-xs text-gray-400 mb-2">
+        <router-link to="/projects" class="hover:text-white">All projects</router-link>
+        <template v-if="project?.parent_slug">
+          <span class="mx-1">/</span>
+          <router-link :to="`/projects/${project.parent_slug}`" class="hover:text-white capitalize">
+            {{ project.parent_slug }}
+          </router-link>
+        </template>
+      </div>
+      <h2 class="text-lg font-bold text-white mb-4 capitalize">{{ project?.name ?? slug }}</h2>
 
-    <div v-if="loading" class="flex items-center justify-center h-64">
-      <p class="text-gray-400 text-lg">Loading…</p>
-    </div>
-
-    <div v-else-if="!project" class="flex items-center justify-center h-64">
-      <p class="text-gray-400">Project not found.</p>
-    </div>
-
-    <template v-else>
-      <!-- Role swimlanes -->
-      <div v-for="role in ROLE_ORDER.filter(r => project.roles[r])" :key="role" class="mb-10">
-        <div class="flex items-center gap-3 mb-3">
-          <span :class="['w-3 h-3 rounded-full flex-shrink-0', ROLE_STYLES[role].dot]"></span>
-          <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider">
-            {{ ROLE_STYLES[role].label }}
-          </h2>
-          <span class="text-xs text-gray-500">({{ project.roles[role].length }})</span>
-        </div>
-        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-          <div
-            v-for="img in project.roles[role]"
-            :key="img.id"
-            class="relative group rounded-lg overflow-hidden bg-gray-800 cursor-pointer"
-            @click="$router.push(`/image/${img.id}`)"
-          >
-            <div class="aspect-square overflow-hidden bg-gray-700">
-              <img
-                :src="`/api/images/${img.id}/thumbnail`"
-                :alt="img.filename"
-                class="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
-                loading="lazy"
-                @error="onImgError"
-              />
-            </div>
-            <!-- Role badge -->
-            <span
-              :class="['absolute top-1.5 right-1.5 text-xs px-1.5 py-0.5 rounded font-medium', ROLE_STYLES[role].badge]"
+      <!-- Sub-projects -->
+      <div v-if="project?.children?.length" class="mb-5">
+        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Sub-projects</div>
+        <ul class="space-y-0.5">
+          <li v-for="c in project.children" :key="c.slug">
+            <router-link
+              :to="`/projects/${c.slug}`"
+              class="flex items-center justify-between text-sm text-gray-300 hover:bg-gray-700 px-2 py-1 rounded"
             >
-              {{ ROLE_STYLES[role].label }}
+              <span class="truncate capitalize">📁 {{ c.name }}</span>
+              <span class="text-xs text-gray-500 ml-2">{{ c.image_count }}</span>
+            </router-link>
+          </li>
+        </ul>
+      </div>
+
+      <button
+        v-if="activeRole || activeValue"
+        @click="clearFilter"
+        class="w-full text-xs text-purple-400 hover:text-purple-300 mb-3 text-left"
+      >
+        ← Clear filter
+      </button>
+
+      <div v-if="!project" class="text-sm text-gray-500 italic">Loading…</div>
+
+      <div v-for="role in roleNames" :key="role" class="mb-5">
+        <div class="flex items-center justify-between mb-1.5">
+          <button
+            @click="toggleRole(role)"
+            :class="[
+              'text-xs font-semibold uppercase tracking-wider',
+              activeRole === role && !activeValue ? 'text-white' : 'text-gray-400 hover:text-white'
+            ]"
+          >
+            {{ role || 'Unroled' }}
+          </button>
+          <span class="text-xs text-gray-500">{{ roleTotal(role) }}</span>
+        </div>
+        <ul class="space-y-0.5">
+          <li v-for="[value, imgs] in sortedValues(role)" :key="value">
+            <button
+              @click="setFilter(role, value)"
+              :class="[
+                'flex items-center justify-between w-full text-left text-sm px-2 py-1 rounded',
+                activeRole === role && activeValue === value
+                  ? 'bg-purple-900/50 text-white'
+                  : 'text-gray-300 hover:bg-gray-700'
+              ]"
+            >
+              <span class="truncate">{{ value || '(unspecified)' }}</span>
+              <span class="text-xs text-gray-500 ml-2">{{ imgs.length }}</span>
+            </button>
+          </li>
+        </ul>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <div class="flex-1 overflow-y-auto p-6">
+      <div v-if="loading" class="flex items-center justify-center h-64">
+        <p class="text-gray-400 text-lg">Loading…</p>
+      </div>
+
+      <div v-else-if="!project" class="flex items-center justify-center h-64">
+        <p class="text-gray-400">Project not found.</p>
+      </div>
+
+      <template v-else>
+        <!-- Header -->
+        <div class="flex items-center gap-3 mb-6">
+          <h1 class="text-2xl font-bold text-white">
+            <span v-if="activeRole">
+              <span class="text-gray-500 capitalize">{{ activeRole }}:</span>
+              <span class="ml-2">{{ activeValue || '(unspecified)' }}</span>
             </span>
-            <div class="p-2">
-              <p class="text-xs text-gray-400 truncate" :title="img.filename">{{ img.filename }}</p>
+            <span v-else class="capitalize">{{ project.name }}</span>
+          </h1>
+          <span class="text-gray-400 text-sm">
+            ({{ filteredImages.length }} image{{ filteredImages.length !== 1 ? 's' : '' }})
+          </span>
+        </div>
+
+        <!-- Filtered: flat grid -->
+        <div v-if="activeRole" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+          <ImageThumb v-for="img in filteredImages" :key="img.id" :img="img" />
+        </div>
+
+        <!-- Unfiltered: swimlanes -->
+        <template v-else>
+          <div v-for="role in roleNames" :key="role" class="mb-10">
+            <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">
+              {{ role || 'Unroled' }}
+              <span class="text-xs text-gray-500 ml-2 normal-case font-normal">
+                {{ roleTotal(role) }} images
+              </span>
+            </h2>
+            <div v-for="[value, imgs] in sortedValues(role)" :key="value" class="mb-5">
+              <button
+                @click="setFilter(role, value)"
+                class="text-xs text-gray-400 hover:text-white mb-2"
+              >
+                {{ value || '(unspecified)' }} ({{ imgs.length }}) →
+              </button>
+              <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-2">
+                <ImageThumb v-for="img in imgs.slice(0, 8)" :key="img.id" :img="img" />
+              </div>
             </div>
           </div>
-        </div>
-      </div>
-
-      <!-- Ungrouped fallback -->
-      <div v-if="!hasAnyRoles" class="text-gray-500 text-sm italic">
-        No images have been assigned roles in this project yet.
-      </div>
-    </template>
+        </template>
+      </template>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, computed, onMounted, watch, h } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 
 const route = useRoute()
+const router = useRouter()
 const slug = computed(() => route.params.slug)
 const project = ref(null)
 const loading = ref(false)
 
-const ROLE_ORDER = ['character', 'scene', 'background', 'prop', 'concept', 'reference', 'other']
+const activeRole = computed(() => route.query.role || '')
+const activeValue = computed(() => route.query.value || '')
 
-const ROLE_STYLES = {
-  character: { label: 'Character', dot: 'bg-blue-400', badge: 'bg-blue-900/80 text-blue-300' },
-  scene: { label: 'Scene', dot: 'bg-green-400', badge: 'bg-green-900/80 text-green-300' },
-  background: { label: 'Background', dot: 'bg-yellow-400', badge: 'bg-yellow-900/80 text-yellow-300' },
-  prop: { label: 'Prop', dot: 'bg-orange-400', badge: 'bg-orange-900/80 text-orange-300' },
-  concept: { label: 'Concept', dot: 'bg-pink-400', badge: 'bg-pink-900/80 text-pink-300' },
-  reference: { label: 'Reference', dot: 'bg-purple-400', badge: 'bg-purple-900/80 text-purple-300' },
-  other: { label: 'Other', dot: 'bg-gray-400', badge: 'bg-gray-700/80 text-gray-300' },
+const ROLE_ORDER = ['suspect', 'weapon', 'room', 'character', 'scene', 'background', 'prop', 'concept', 'reference', '']
+
+const roleNames = computed(() => {
+  if (!project.value) return []
+  const present = Object.keys(project.value.roles)
+  const known = ROLE_ORDER.filter(r => present.includes(r))
+  const extras = present.filter(r => !ROLE_ORDER.includes(r)).sort()
+  return [...known, ...extras]
+})
+
+function roleTotal(role) {
+  if (!project.value) return 0
+  const values = project.value.roles[role] || {}
+  return Object.values(values).reduce((sum, imgs) => sum + imgs.length, 0)
 }
 
-const hasAnyRoles = computed(() => project.value && Object.keys(project.value.roles).length > 0)
+function sortedValues(role) {
+  if (!project.value) return []
+  const values = project.value.roles[role] || {}
+  return Object.entries(values).sort((a, b) => b[1].length - a[1].length)
+}
+
+const filteredImages = computed(() => {
+  if (!project.value || !activeRole.value) return []
+  const values = project.value.roles[activeRole.value] || {}
+  if (activeValue.value) return values[activeValue.value] || []
+  return Object.values(values).flat()
+})
+
+function setFilter(role, value) {
+  router.replace({ query: { role, value } })
+}
+
+function toggleRole(role) {
+  if (activeRole.value === role && !activeValue.value) clearFilter()
+  else router.replace({ query: { role, value: '' } })
+}
+
+function clearFilter() {
+  router.replace({ query: {} })
+}
 
 async function loadProject() {
   loading.value = true
@@ -102,7 +200,25 @@ async function loadProject() {
 onMounted(loadProject)
 watch(slug, loadProject)
 
-function onImgError(e) {
-  e.target.src = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Crect width='100' height='100' fill='%23374151'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%236b7280' font-size='12'%3ENo Image%3C/text%3E%3C/svg%3E`
+// Inline thumbnail card
+const ImageThumb = {
+  props: ['img'],
+  setup(props) {
+    const onErr = (e) => {
+      e.target.src = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Crect width='100' height='100' fill='%23374151'/%3E%3C/svg%3E`
+    }
+    return () => h('div', {
+      class: 'group rounded-lg overflow-hidden bg-gray-800 cursor-pointer aspect-square',
+      onClick: () => router.push(`/image/${props.img.id}`),
+    }, [
+      h('img', {
+        src: `/api/images/${props.img.id}/thumbnail`,
+        alt: props.img.filename,
+        loading: 'lazy',
+        class: 'w-full h-full object-cover transition-transform duration-200 group-hover:scale-105',
+        onError: onErr,
+      }),
+    ])
+  },
 }
 </script>
