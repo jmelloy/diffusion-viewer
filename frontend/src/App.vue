@@ -75,7 +75,8 @@ async function doScan() {
   scanError.value = false
   try {
     const result = await store.scanDirectory(scanDirectory.value.trim())
-    scanResult.value = `✅ Scanned: ${result.scanned}, Added: ${result.added}, Updated: ${result.updated}`
+    const sidecars = result.with_sidecar ?? 0
+    scanResult.value = `✅ Scanned: ${result.scanned}, Added: ${result.added}, Updated: ${result.updated}, Sidecars: ${sidecars}`
   } catch (e) {
     scanError.value = true
     scanResult.value = '❌ ' + (e.response?.data?.detail || e.message)

@@ -45,6 +45,33 @@
           <TagManager :image-id="image.id" :tags="image.tags" @updated="refreshImage" />
         </div>
 
+        <!-- Projects -->
+        <div class="bg-gray-800 rounded-xl p-4">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wider">Projects</h3>
+            <button
+              @click="showProjectModal = true"
+              class="text-xs bg-indigo-700 hover:bg-indigo-600 text-white px-2 py-0.5 rounded transition-colors"
+            >
+              + Assign
+            </button>
+          </div>
+          <div v-if="imageProjects.length" class="flex flex-wrap gap-1">
+            <router-link
+              v-for="p in imageProjects"
+              :key="p.slug"
+              :to="`/projects/${p.slug}`"
+              class="bg-indigo-900/60 hover:bg-indigo-800/80 text-indigo-300 text-xs px-2 py-0.5 rounded transition-colors"
+            >
+              📁 {{ p.name }}
+              <span v-if="p.roles.length" class="ml-1 text-indigo-400">
+                ({{ p.roles.join(', ') }})
+              </span>
+            </router-link>
+          </div>
+          <p v-else class="text-xs text-gray-500 italic">Not assigned to any project</p>
+        </div>
+
         <!-- Metadata -->
         <div class="bg-gray-800 rounded-xl p-4">
           <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Metadata</h3>
@@ -110,6 +137,15 @@
   <div v-else class="flex items-center justify-center h-64">
     <p class="text-gray-400">{{ loading ? 'Loading…' : 'Image not found' }}</p>
   </div>
+
+  <!-- Assign to project modal -->
+  <AssignProjectModal
+    v-if="showProjectModal && image"
+    :image-id="image.id"
+    :image-tags="image.tags"
+    @close="showProjectModal = false"
+    @assigned="onProjectAssigned"
+  />
 </template>
 
 <script setup>
@@ -119,6 +155,7 @@ import axios from 'axios'
 import { useImagesStore } from '../stores/images.js'
 import RatingWidget from '../components/RatingWidget.vue'
 import TagManager from '../components/TagManager.vue'
+import AssignProjectModal from '../components/AssignProjectModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -126,6 +163,26 @@ const store = useImagesStore()
 const image = ref(null)
 const loading = ref(false)
 const showSidecar = ref(false)
+const showProjectModal = ref(false)
+
+const imageProjects = computed(() => {
+  if (!image.value?.tags) return []
+  const projects = {}
+  for (const tag of image.value.tags) {
+    const parts = tag.name.split(':')
+    if (parts[0] !== 'project') continue
+    const slug = parts[1]
+    if (!slug) continue
+    if (!projects[slug]) projects[slug] = { slug, name: slug.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()), roles: [] }
+    if (parts[2]) projects[slug].roles.push(parts[2])
+  }
+  return Object.values(projects)
+})
+
+async function onProjectAssigned(updatedImage) {
+  if (updatedImage) image.value = updatedImage
+  else await refreshImage()
+}
 
 async function loadImage() {
   loading.value = true

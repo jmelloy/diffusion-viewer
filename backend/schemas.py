@@ -14,8 +14,14 @@ class TagCreate(TagBase):
 class Tag(TagBase):
     id: int
     image_count: Optional[int] = 0
+    parent_tag_id: Optional[int] = None
+    parent_name: Optional[str] = None
 
     model_config = {"from_attributes": True}
+
+
+class TagParentUpdate(BaseModel):
+    parent_tag_id: Optional[int] = None
 
 
 class ImageBase(BaseModel):
@@ -89,3 +95,26 @@ class SearchParams(BaseModel):
     date_from: Optional[datetime] = None
     date_to: Optional[datetime] = None
     show_hidden: bool = False
+
+
+class ProjectInfo(BaseModel):
+    slug: str
+    name: str
+    image_count: int
+
+
+class ProjectDetail(BaseModel):
+    slug: str
+    name: str
+    image_count: int
+    roles: Dict[str, List[Any]]
+
+
+class ProjectAssignRequest(BaseModel):
+    project: str
+    roles: List[str] = []
+
+
+class ProjectRemoveRequest(BaseModel):
+    project: str
+    roles: Optional[List[str]] = None
