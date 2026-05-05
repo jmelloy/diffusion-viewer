@@ -1,16 +1,16 @@
 import re
+from collections import defaultdict
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import Session, aliased
 
 import models
 import schemas
 from database import get_db
 
 router = APIRouter(tags=["projects"])
-
-VALID_ROLES = {"character", "scene", "background", "prop", "concept", "reference", "other"}
 
 
 def slug_to_name(slug: str) -> str:
@@ -24,50 +24,146 @@ def normalize_slug(name: str) -> str:
     return slug
 
 
+def _parse_role(tag_name: str, slug: str) -> tuple[str, str] | None:
+    """Parse `project:<slug>:<role>:<value>` → (role, value); else None."""
+    prefix = f"project:{slug}:"
+    if not tag_name.startswith(prefix):
+        return None
+    rest = tag_name[len(prefix):]
+    role, _, value = rest.partition(":")
+    if not role or not value:
+        return None
+    return role, value
+
+
+def _project_slug(tag_name: str) -> str | None:
+    parts = tag_name.split(":")
+    if len(parts) == 2 and parts[0] == "project":
+        return parts[1]
+    return None
+
+
+def _descendant_tag_ids(db: Session, root_id: int) -> list[int]:
+    anchor = (
+        select(models.Tag.id)
+        .where(models.Tag.id == root_id)
+        .cte(name="proj_descendants", recursive=True)
+    )
+    child = aliased(models.Tag)
+    descendants = anchor.union_all(
+        select(child.id).where(child.parent_tag_id == anchor.c.id)
+    )
+    return [r[0] for r in db.execute(select(descendants.c.id)).all()]
+
+
+def _parent_project_slug(db: Session, tag: models.Tag) -> str | None:
+    cursor = tag.parent
+    depth = 0
+    while cursor is not None and depth < 32:
+        slug = _project_slug(cursor.name)
+        if slug:
+            return slug
+        cursor = cursor.parent
+        depth += 1
+    return None
+
+
 @router.get("/api/projects", response_model=List[schemas.ProjectInfo])
 def list_projects(db: Session = Depends(get_db)):
-    tags = db.query(models.Tag).filter(models.Tag.name.like("project:%")).all()
+    project_tags = (
+        db.query(models.Tag).filter(models.Tag.name.like("project:%")).all()
+    )
+    project_tags = [t for t in project_tags if _project_slug(t.name)]
 
-    projects: dict[str, dict] = {}
-    for tag in tags:
-        parts = tag.name.split(":")
-        # Only top-level project tags: "project:<slug>" (exactly 2 parts)
-        if len(parts) == 2:
-            slug = parts[1]
-            count = len(tag.images)
-            projects[slug] = {"slug": slug, "name": slug_to_name(slug), "image_count": count}
-
-    return [schemas.ProjectInfo(**p) for p in projects.values()]
+    out = []
+    for tag in project_tags:
+        slug = _project_slug(tag.name)
+        descendant_ids = _descendant_tag_ids(db, tag.id)
+        image_count = (
+            db.query(models.Image)
+            .filter(models.Image.tags.any(models.Tag.id.in_(descendant_ids)))
+            .count()
+        )
+        out.append(
+            schemas.ProjectInfo(
+                slug=slug,
+                name=slug_to_name(slug),
+                image_count=image_count,
+                parent_slug=_parent_project_slug(db, tag),
+            )
+        )
+    out.sort(key=lambda p: p.slug)
+    return out
 
 
 @router.get("/api/projects/{slug}", response_model=schemas.ProjectDetail)
 def get_project(slug: str, db: Session = Depends(get_db)):
-    project_tag = db.query(models.Tag).filter(models.Tag.name == f"project:{slug}").first()
-
+    project_tag = (
+        db.query(models.Tag).filter(models.Tag.name == f"project:{slug}").first()
+    )
     if not project_tag:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    images_in_project = list(project_tag.images)
+    descendant_ids = _descendant_tag_ids(db, project_tag.id)
+    images = (
+        db.query(models.Image)
+        .filter(models.Image.tags.any(models.Tag.id.in_(descendant_ids)))
+        .all()
+    )
 
-    grouped: dict[str, list] = {role: [] for role in VALID_ROLES}
+    # roles[role][value] = list[Image]; unroled images go in roles[""][""]
+    roles: dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
+    for img in images:
+        assigned = False
+        for tag in img.tags:
+            parsed = _parse_role(tag.name, slug)
+            if parsed:
+                role, value = parsed
+                roles[role][value].append(img)
+                assigned = True
+        if not assigned:
+            roles[""][""].append(img)
 
-    for img in images_in_project:
-        img_tag_names = {t.name for t in img.tags}
-        img_roles = [role for role in VALID_ROLES if f"project:{slug}:{role}" in img_tag_names]
-        if not img_roles:
-            img_roles = ["other"]
-        for role in img_roles:
-            grouped[role].append(img)
-
-    # Remove empty role buckets
-    grouped = {k: v for k, v in grouped.items() if v}
+    children = []
+    for child_tag in db.query(models.Tag).filter(
+        models.Tag.parent_tag_id == project_tag.id
+    ).all():
+        child_slug = _project_slug(child_tag.name)
+        if not child_slug:
+            continue
+        child_ids = _descendant_tag_ids(db, child_tag.id)
+        child_count = (
+            db.query(models.Image)
+            .filter(models.Image.tags.any(models.Tag.id.in_(child_ids)))
+            .count()
+        )
+        children.append(
+            schemas.ProjectInfo(
+                slug=child_slug,
+                name=slug_to_name(child_slug),
+                image_count=child_count,
+                parent_slug=slug,
+            )
+        )
+    children.sort(key=lambda p: p.slug)
 
     return schemas.ProjectDetail(
         slug=slug,
         name=slug_to_name(slug),
-        image_count=len(images_in_project),
-        roles=grouped,
+        image_count=len(images),
+        parent_slug=_parent_project_slug(db, project_tag),
+        children=children,
+        roles={k: dict(v) for k, v in roles.items()},
     )
+
+
+def _ensure_tag(db: Session, name: str, parent: models.Tag | None = None) -> models.Tag:
+    tag = db.query(models.Tag).filter(models.Tag.name == name).first()
+    if not tag:
+        tag = models.Tag(name=name, parent_tag_id=parent.id if parent else None)
+        db.add(tag)
+        db.flush()
+    return tag
 
 
 @router.post("/api/images/{image_id}/project", response_model=schemas.Image)
@@ -80,20 +176,21 @@ def assign_project(image_id: int, body: schemas.ProjectAssignRequest, db: Sessio
     if not slug:
         raise HTTPException(status_code=400, detail="Invalid project name")
 
-    tag_names = [f"project:{slug}"]
-    for role in body.roles:
-        role = role.strip().lower()
-        if role in VALID_ROLES:
-            tag_names.append(f"project:{slug}:{role}")
+    project_tag = _ensure_tag(db, f"project:{slug}")
+    if project_tag not in img.tags:
+        img.tags.append(project_tag)
 
-    for tag_name in tag_names:
-        tag = db.query(models.Tag).filter(models.Tag.name == tag_name).first()
-        if not tag:
-            tag = models.Tag(name=tag_name)
-            db.add(tag)
-            db.flush()
-        if tag not in img.tags:
-            img.tags.append(tag)
+    for role, values in body.roles.items():
+        role = role.strip().lower()
+        if not role:
+            continue
+        for value in values:
+            value = value.strip().lower()
+            if not value:
+                continue
+            tag = _ensure_tag(db, f"project:{slug}:{role}:{value}", parent=project_tag)
+            if tag not in img.tags:
+                img.tags.append(tag)
 
     db.commit()
     db.refresh(img)
@@ -109,17 +206,20 @@ def remove_project(image_id: int, body: schemas.ProjectRemoveRequest, db: Sessio
     slug = normalize_slug(body.project)
 
     if body.roles:
-        for role in body.roles:
+        for role, values in body.roles.items():
             role = role.strip().lower()
-            if role not in VALID_ROLES:
-                continue
-            tag = db.query(models.Tag).filter(models.Tag.name == f"project:{slug}:{role}").first()
-            if tag and tag in img.tags:
-                img.tags.remove(tag)
+            for value in values:
+                value = value.strip().lower()
+                tag = db.query(models.Tag).filter(
+                    models.Tag.name == f"project:{slug}:{role}:{value}"
+                ).first()
+                if tag and tag in img.tags:
+                    img.tags.remove(tag)
     else:
+        prefix = f"project:{slug}"
         to_remove = [
             t for t in img.tags
-            if t.name == f"project:{slug}" or t.name.startswith(f"project:{slug}:")
+            if t.name == prefix or t.name.startswith(f"{prefix}:")
         ]
         for tag in to_remove:
             img.tags.remove(tag)

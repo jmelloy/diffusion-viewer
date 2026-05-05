@@ -5,8 +5,8 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
-from sqlalchemy import or_, and_, func
-from sqlalchemy.orm import Session
+from sqlalchemy import or_, and_, func, select
+from sqlalchemy.orm import Session, aliased
 from PIL import Image as PILImage
 
 import models
@@ -40,8 +40,17 @@ def apply_filters(query, db: Session, q, tags, min_rating, show_hidden, date_fro
 
     if tags:
         for tag_name in tags:
+            anchor = (
+                select(models.Tag.id)
+                .where(models.Tag.name == tag_name)
+                .cte(name="tag_descendants", recursive=True)
+            )
+            child = aliased(models.Tag)
+            descendants = anchor.union_all(
+                select(child.id).where(child.parent_tag_id == anchor.c.id)
+            )
             query = query.filter(
-                models.Image.tags.any(models.Tag.name == tag_name)
+                models.Image.tags.any(models.Tag.id.in_(select(descendants.c.id)))
             )
 
     if date_from:

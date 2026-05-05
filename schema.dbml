@@ -1,0 +1,47 @@
+// diffusion-viewer SQLite schema
+// Generated from backend/models.py
+
+Table images {
+  id integer [pk, increment]
+  filename varchar [not null]
+  filepath varchar [unique, not null]
+  directory varchar [not null]
+  width integer
+  height integer
+  file_size integer
+  date_taken datetime
+  created_at datetime
+  updated_at datetime
+  rating integer [default: 0, note: '-1=down, 0=unrated, 1=up, 2-5=stars']
+  hidden boolean [default: false]
+  sidecar_data text [note: 'raw JSON']
+  prompt text
+  description text
+  model varchar
+  thumbnail_path varchar
+
+  indexes {
+    id
+  }
+}
+
+Table tags {
+  id integer [pk, increment]
+  name varchar [unique, not null]
+  parent_tag_id integer [ref: > tags.id, note: 'ON DELETE SET NULL']
+
+  indexes {
+    id
+    name [unique]
+    parent_tag_id
+  }
+}
+
+Table image_tags {
+  image_id integer [ref: > images.id]
+  tag_id integer [ref: > tags.id]
+
+  indexes {
+    (image_id, tag_id) [pk]
+  }
+}

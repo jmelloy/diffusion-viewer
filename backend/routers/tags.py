@@ -11,6 +11,17 @@ from utils.hierarchy import recompute_parents
 router = APIRouter(prefix="/api/tags", tags=["tags"])
 
 
+def _build_path(tag: models.Tag) -> str:
+    parts = [tag.name]
+    cursor = tag.parent
+    depth = 0
+    while cursor is not None and depth < 32:
+        parts.append(cursor.name)
+        cursor = cursor.parent
+        depth += 1
+    return " / ".join(reversed(parts))
+
+
 def _serialize(tag: models.Tag) -> schemas.Tag:
     return schemas.Tag(
         id=tag.id,
@@ -18,6 +29,7 @@ def _serialize(tag: models.Tag) -> schemas.Tag:
         image_count=len(tag.images),
         parent_tag_id=tag.parent_tag_id,
         parent_name=tag.parent.name if tag.parent else None,
+        path=_build_path(tag),
     )
 
 

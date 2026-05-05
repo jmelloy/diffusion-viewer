@@ -16,6 +16,7 @@ class Tag(TagBase):
     image_count: Optional[int] = 0
     parent_tag_id: Optional[int] = None
     parent_name: Optional[str] = None
+    path: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -101,20 +102,27 @@ class ProjectInfo(BaseModel):
     slug: str
     name: str
     image_count: int
+    parent_slug: Optional[str] = None
 
 
 class ProjectDetail(BaseModel):
     slug: str
     name: str
     image_count: int
-    roles: Dict[str, List[Any]]
+    parent_slug: Optional[str] = None
+    children: List[ProjectInfo] = []
+    # roles[role][value] = list of images, plus roles[""][""] for unroled images
+    roles: Dict[str, Dict[str, List[Image]]]
 
 
 class ProjectAssignRequest(BaseModel):
     project: str
-    roles: List[str] = []
+    # role -> value(s); e.g. {"character": "miss scarlett", "scene": "kitchen"}
+    # Pass {} to add only the project tag with no role.
+    roles: Dict[str, List[str]] = {}
 
 
 class ProjectRemoveRequest(BaseModel):
     project: str
-    roles: Optional[List[str]] = None
+    # Same shape as assign. Omit to remove the project entirely (and all its role tags).
+    roles: Optional[Dict[str, List[str]]] = None

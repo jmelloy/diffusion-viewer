@@ -12,6 +12,7 @@ venv/
 env/
 .env
 *.db
+*.db.bak*
 *.sqlite3
 
 # Thumbnails (generated at runtime)

@@ -36,18 +36,10 @@
         </ul>
       </div>
 
-      <!-- Role checkboxes -->
+      <!-- Role/value pairs -->
       <div class="mb-5">
-        <label class="block text-xs text-gray-400 mb-2">Role(s)</label>
-        <div class="grid grid-cols-2 gap-2">
-          <label v-for="role in ROLES" :key="role.value" class="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" :value="role.value" v-model="selectedRoles" class="rounded accent-purple-500" />
-            <span class="text-sm text-gray-200 flex items-center gap-1.5">
-              <span :class="['inline-block w-2 h-2 rounded-full', role.dot]"></span>
-              {{ role.label }}
-            </span>
-          </label>
-        </div>
+        <label class="block text-xs text-gray-400 mb-2">Roles</label>
+        <RolesEditor v-model="rolesPayload" :project-slug="projectInput.trim().toLowerCase()" />
       </div>
 
       <div class="flex gap-2 justify-end">
@@ -73,6 +65,7 @@
 import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import { useProjectsStore } from '../stores/projects.js'
+import RolesEditor from './RolesEditor.vue'
 
 const props = defineProps({
   imageIds: { type: Array, required: true },
@@ -82,20 +75,10 @@ const emit = defineEmits(['close', 'assigned'])
 
 const projectsStore = useProjectsStore()
 const projectInput = ref('')
-const selectedRoles = ref([])
+const rolesPayload = ref({})
 const saving = ref(false)
 const showSuggestions = ref(false)
 const activeSuggestion = ref(-1)
-
-const ROLES = [
-  { value: 'character', label: 'Character', dot: 'bg-blue-400' },
-  { value: 'scene', label: 'Scene', dot: 'bg-green-400' },
-  { value: 'background', label: 'Background', dot: 'bg-yellow-400' },
-  { value: 'prop', label: 'Prop', dot: 'bg-orange-400' },
-  { value: 'concept', label: 'Concept', dot: 'bg-pink-400' },
-  { value: 'reference', label: 'Reference', dot: 'bg-purple-400' },
-  { value: 'other', label: 'Other', dot: 'bg-gray-400' },
-]
 
 onMounted(() => projectsStore.fetchProjects())
 
@@ -128,7 +111,7 @@ async function assign() {
   try {
     await Promise.all(
       props.imageIds.map((id) =>
-        axios.post(`/api/images/${id}/project`, { project: name, roles: selectedRoles.value })
+        axios.post(`/api/images/${id}/project`, { project: name, roles: rolesPayload.value })
       )
     )
     await projectsStore.fetchProjects()
