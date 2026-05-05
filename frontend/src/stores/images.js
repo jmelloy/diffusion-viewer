@@ -1,6 +1,10 @@
 import { defineStore } from 'pinia'
 import axios from 'axios'
 
+// FastAPI's List[str] query params expect repeated keys (tags=a&tags=b),
+// not the bracketed form (tags[]=a&tags[]=b) that axios produces by default.
+const listParams = { paramsSerializer: { indexes: null } }
+
 export const useImagesStore = defineStore('images', {
   state: () => ({
     images: [],
@@ -39,7 +43,7 @@ export const useImagesStore = defineStore('images', {
         if (this.dateFrom) params.date_from = this.dateFrom
         if (this.dateTo) params.date_to = this.dateTo
 
-        const res = await axios.get('/api/images', { params })
+        const res = await axios.get('/api/images', { params, ...listParams })
         this.images = res.data.items
         this.total = res.data.total
         this.page = res.data.page
@@ -68,7 +72,7 @@ export const useImagesStore = defineStore('images', {
         if (this.dateFrom) params.date_from = this.dateFrom
         if (this.dateTo) params.date_to = this.dateTo
 
-        const res = await axios.get('/api/images', { params })
+        const res = await axios.get('/api/images', { params, ...listParams })
         this.images = [...this.images, ...res.data.items]
         this.page = res.data.page
         this.pages = res.data.pages
