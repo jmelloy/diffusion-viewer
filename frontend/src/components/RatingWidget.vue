@@ -3,11 +3,11 @@
     <!-- Thumbs -->
     <div class="flex gap-3 items-center">
       <button
-        @click="setRating(1)"
+        @click="setRating(10)"
         :class="[
           'text-2xl transition-all hover:scale-125',
           size === 'lg' ? 'text-3xl' : '',
-          currentRating === 1 ? 'opacity-100 drop-shadow-lg' : 'opacity-50 hover:opacity-80',
+          currentRating === 10 ? 'opacity-100 drop-shadow-lg' : 'opacity-50 hover:opacity-80',
         ]"
         title="Thumbs up"
       >👍</button>
@@ -46,7 +46,7 @@
     <p v-if="size === 'lg'" class="text-sm text-gray-400">
       <span v-if="currentRating === -1" class="text-red-400">Hidden (thumbs down)</span>
       <span v-else-if="currentRating === 0" class="text-gray-500">Unrated</span>
-      <span v-else-if="currentRating === 1" class="text-green-400">Thumbs up</span>
+      <span v-else-if="currentRating === 10" class="text-green-400">Thumbs up</span>
       <span v-else class="text-yellow-400">{{ currentRating - 1 }} Star{{ currentRating - 1 !== 1 ? 's' : '' }}</span>
     </p>
   </div>

@@ -143,7 +143,7 @@
         <label class="block text-xs text-gray-400 mb-1 flex items-center justify-between">
           <span>
             Filter by Tags
-            <span class="text-gray-500">({{ visibleTagCount }} / {{ store.allTags.length }})</span>
+            <span class="text-gray-500">({{ visibleTagCount }} / {{ nonProjectTags.length }})</span>
           </span>
           <button
             @click="tagViewMode = tagViewMode === 'tree' ? 'flat' : 'tree'"
@@ -348,13 +348,19 @@ function matchesQuery(tag, q) {
   return tag.name.toLowerCase().includes(q)
 }
 
+// Hide project:* tags from the main tag list — they're managed through
+// the project UI, not the tag filter.
+const nonProjectTags = computed(() =>
+  store.allTags.filter((t) => !t.name.startsWith('project:'))
+)
+
 // Flat view: filter, then pin selected, then sort by image count desc.
 const flatTags = computed(() => {
   const q = tagFilterQuery.value.trim().toLowerCase()
   const selected = new Set(store.selectedTags)
   const pinned = []
   const rest = []
-  for (const tag of store.allTags) {
+  for (const tag of nonProjectTags.value) {
     if (selected.has(tag.name)) {
       pinned.push(tag)
     } else if (matchesQuery(tag, q)) {
@@ -368,11 +374,11 @@ const flatTags = computed(() => {
 // Tree view: group children under their parent. Orphan tags (no parent and
 // not pointed at by anyone) appear in a final unparented group.
 const tagTree = computed(() => {
-  const byId = new Map(store.allTags.map((t) => [t.id, t]))
+  const byId = new Map(nonProjectTags.value.map((t) => [t.id, t]))
   const groups = new Map()  // parent_id -> { parent, children: [] }
   const orphans = []
 
-  for (const tag of store.allTags) {
+  for (const tag of nonProjectTags.value) {
     if (tag.parent_tag_id && byId.has(tag.parent_tag_id)) {
       const pid = tag.parent_tag_id
       if (!groups.has(pid)) {
@@ -383,7 +389,7 @@ const tagTree = computed(() => {
   }
 
   // A tag is an orphan only if it isn't a parent in `groups` and has no parent of its own.
-  for (const tag of store.allTags) {
+  for (const tag of nonProjectTags.value) {
     if (groups.has(tag.id)) continue          // is a parent → already represented
     if (tag.parent_tag_id) continue            // is a child → handled above
     orphans.push(tag)

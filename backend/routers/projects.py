@@ -108,6 +108,10 @@ def get_project(slug: str, db: Session = Depends(get_db)):
     images = (
         db.query(models.Image)
         .filter(models.Image.tags.any(models.Tag.id.in_(descendant_ids)))
+        .order_by(
+            models.Image.rating.desc().nullslast(),
+            models.Image.date_taken.desc().nullslast(),
+        )
         .all()
     )
 

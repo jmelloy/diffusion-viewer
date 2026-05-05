@@ -11,9 +11,7 @@ class ImageTag(SQLModel, table=True):
     image_id: Optional[int] = Field(
         default=None, foreign_key="images.id", primary_key=True
     )
-    tag_id: Optional[int] = Field(
-        default=None, foreign_key="tags.id", primary_key=True
-    )
+    tag_id: Optional[int] = Field(default=None, foreign_key="tags.id", primary_key=True)
 
 
 # Backwards-compatible alias for code that operated on the raw association table.
@@ -41,9 +39,13 @@ class Image(SQLModel, table=True):
     )
     rating: int = Field(default=0)
     hidden: bool = Field(default=False)
-    sidecar_data: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    sidecar_data: Optional[str] = Field(
+        default=None, sa_column=Column(Text, nullable=True)
+    )
     prompt: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
-    description: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    description: Optional[str] = Field(
+        default=None, sa_column=Column(Text, nullable=True)
+    )
     model: Optional[str] = None
     thumbnail_path: Optional[str] = None
 

@@ -29,8 +29,8 @@
       <div class="w-full p-2 flex justify-between items-center" @click.stop>
         <div class="flex gap-1">
           <button
-            @click="$emit('rate', 1)"
-            :class="['text-xl transition-transform hover:scale-125', image.rating === 1 ? 'opacity-100' : 'opacity-70']"
+            @click="$emit('rate', 10)"
+            :class="['text-xl transition-transform hover:scale-125', image.rating === 10 ? 'opacity-100' : 'opacity-70']"
             title="Thumbs up"
           >👍</button>
           <button
@@ -57,9 +57,9 @@
       <div class="flex items-center justify-between mt-1">
         <!-- Rating indicator -->
         <span class="text-sm">
-          <span v-if="image.rating === 1">👍</span>
+          <span v-if="image.rating === 10">👍</span>
           <span v-else-if="image.rating === -1">👎</span>
-          <span v-else-if="image.rating >= 2" class="text-yellow-400 text-xs">
+          <span v-else-if="image.rating >= 2 && image.rating <= 6" class="text-yellow-400 text-xs">
             {{ '★'.repeat(image.rating - 1) }}
           </span>
         </span>

@@ -68,6 +68,7 @@ const filteredSuggestions = computed(() => {
   if (!q) return []
   return store.allTags.filter(
     (t) =>
+      !t.name.startsWith('project:') &&
       t.name.includes(q) &&
       !localTags.value.find((lt) => lt.name === t.name)
   ).slice(0, 10)

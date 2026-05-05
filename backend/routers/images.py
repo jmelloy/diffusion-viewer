@@ -95,17 +95,28 @@ def list_images(
 
     total = query.count()
 
-    sort_column = {
-        "date_taken": models.Image.date_taken,
-        "created_at": models.Image.created_at,
-        "rating": models.Image.rating,
-        "filename": models.Image.filename,
-    }.get(sort_by, models.Image.date_taken)
-
-    if sort_dir == "asc":
-        query = query.order_by(sort_column.asc().nullslast())
+    # In filtered views (search, tag search), default to ordering by rating desc
+    # then date desc, so thumbs-up (rating=10) comes first, stars (2-6) next,
+    # unrated, then thumbs-down (-1) last when shown. The explicit sort dropdown
+    # in the gallery still wins when no filters are active.
+    filtered = bool(q) or bool(tags)
+    if filtered:
+        query = query.order_by(
+            models.Image.rating.desc().nullslast(),
+            models.Image.date_taken.desc().nullslast(),
+        )
     else:
-        query = query.order_by(sort_column.desc().nullslast())
+        sort_column = {
+            "date_taken": models.Image.date_taken,
+            "created_at": models.Image.created_at,
+            "rating": models.Image.rating,
+            "filename": models.Image.filename,
+        }.get(sort_by, models.Image.date_taken)
+
+        if sort_dir == "asc":
+            query = query.order_by(sort_column.asc().nullslast())
+        else:
+            query = query.order_by(sort_column.desc().nullslast())
 
     offset = (page - 1) * limit
     items = query.offset(offset).limit(limit).all()
