@@ -1,2 +1,14 @@
+pillow
+requests
+pandas
+exifread
+PyYAML
+python-ulid
+tqdm
 playwright>=1.40.0
-redis>=5.0.0
+
+# Optional: macOS/Apple Silicon only (required by moments.py)
+# mlx-vlm
+
+# Note: exiftool must be installed separately
+# brew install exiftool
