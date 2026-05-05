@@ -117,6 +117,27 @@
         </select>
       </div>
 
+      <!-- Projects -->
+      <div class="mb-4">
+        <div class="flex items-center justify-between mb-2">
+          <label class="block text-xs text-gray-400 uppercase tracking-wider">Projects</label>
+          <router-link to="/projects" class="text-xs text-purple-400 hover:text-purple-300">All</router-link>
+        </div>
+        <div v-if="projectsStore.loading" class="text-xs text-gray-500 italic">Loading…</div>
+        <div v-else-if="!projectsStore.projects.length" class="text-xs text-gray-500 italic">No projects yet</div>
+        <div v-else class="space-y-0.5">
+          <router-link
+            v-for="p in projectsStore.projects"
+            :key="p.slug"
+            :to="`/projects/${p.slug}`"
+            class="flex items-center justify-between px-1 py-0.5 rounded text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors"
+          >
+            <span class="truncate">{{ p.name }}</span>
+            <span class="text-xs text-gray-500 ml-1 flex-shrink-0">{{ p.image_count }}</span>
+          </router-link>
+        </div>
+      </div>
+
       <!-- Tag filter -->
       <div class="mb-4">
         <label class="block text-xs text-gray-400 mb-1">Filter by Tags</label>
@@ -182,6 +203,14 @@
           </button>
         </div>
 
+        <!-- Assign to project -->
+        <button
+          @click="showBulkProjectModal = true"
+          class="w-full bg-indigo-700 hover:bg-indigo-600 text-white rounded px-2 py-1 text-xs mb-2"
+        >
+          📁 Assign to Project
+        </button>
+
         <!-- Thumbs down -->
         <button
           @click="doBulkThumbsDown"
@@ -191,6 +220,14 @@
         </button>
       </div>
     </aside>
+
+    <!-- Bulk assign-to-project modal -->
+    <BulkProjectModal
+      v-if="showBulkProjectModal"
+      :image-ids="store.selectedImageIds"
+      @close="showBulkProjectModal = false"
+      @assigned="onBulkAssigned"
+    />
 
     <!-- Gallery -->
     <main class="flex-1 overflow-y-auto p-4" ref="galleryEl">
@@ -242,12 +279,16 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useImagesStore } from '../stores/images.js'
+import { useProjectsStore } from '../stores/projects.js'
 import ImageCard from '../components/ImageCard.vue'
+import BulkProjectModal from '../components/BulkProjectModal.vue'
 
 const store = useImagesStore()
+const projectsStore = useProjectsStore()
 const bulkTagInput = ref('')
 const bulkRemoveTagInput = ref('')
 const galleryEl = ref(null)
+const showBulkProjectModal = ref(false)
 
 // Date tree state — default current year + month expanded
 const today = new Date()
@@ -261,7 +302,13 @@ onMounted(() => {
   store.fetchImages(true)
   store.fetchAllTags()
   store.fetchDates()
+  projectsStore.fetchProjects()
 })
+
+async function onBulkAssigned() {
+  showBulkProjectModal.value = false
+  await projectsStore.fetchProjects()
+}
 
 // Build year → month → days tree from flat date list
 const dateTree = computed(() => {
