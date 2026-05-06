@@ -25,6 +25,11 @@ class TagParentUpdate(BaseModel):
     parent_tag_id: Optional[int] = None
 
 
+class TagMergeRequest(BaseModel):
+    source_tag_id: int
+    target_tag_id: int
+
+
 class ImageBase(BaseModel):
     filename: str
     filepath: str

@@ -74,6 +74,51 @@ def set_tag_parent(tag_id: int, body: schemas.TagParentUpdate, db: Session = Dep
     return _serialize(tag)
 
 
+@router.post("/merge", response_model=schemas.Tag)
+def merge_tags(body: schemas.TagMergeRequest, db: Session = Depends(get_db)):
+    """Merge source tag into target tag.
+
+    All images tagged with source are tagged with target (unless already), all
+    children of source are reparented to target, and source is deleted.
+    """
+    if body.source_tag_id == body.target_tag_id:
+        raise HTTPException(status_code=400, detail="Cannot merge a tag into itself")
+
+    source = db.query(models.Tag).filter(models.Tag.id == body.source_tag_id).first()
+    if not source:
+        raise HTTPException(status_code=404, detail="Source tag not found")
+    target = db.query(models.Tag).filter(models.Tag.id == body.target_tag_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Target tag not found")
+
+    # Reject if target is a descendant of source — that would orphan the
+    # subtree once source is deleted; user should reparent first.
+    cursor = target
+    depth = 0
+    while cursor is not None and depth < 32:
+        if cursor.parent_tag_id == source.id:
+            raise HTTPException(
+                status_code=400,
+                detail="Target is a descendant of source; reparent target first",
+            )
+        cursor = cursor.parent
+        depth += 1
+
+    target_image_ids = {img.id for img in target.images}
+    for img in list(source.images):
+        if img.id not in target_image_ids:
+            img.tags.append(target)
+        img.tags.remove(source)
+
+    for child in list(source.children):
+        child.parent_tag_id = target.id
+
+    db.delete(source)
+    db.commit()
+    db.refresh(target)
+    return _serialize(target)
+
+
 @router.post("/recompute-parents", response_model=dict)
 def trigger_recompute_parents(db: Session = Depends(get_db)):
     return recompute_parents(db)
