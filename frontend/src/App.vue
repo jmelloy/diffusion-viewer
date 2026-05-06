@@ -8,6 +8,12 @@
       <div class="flex-1">
         <SearchBar />
       </div>
+      <router-link
+        to="/tags"
+        class="text-sm text-gray-300 hover:text-white px-3 py-2 rounded-lg hover:bg-gray-700 transition-colors whitespace-nowrap"
+      >
+        🏷️ Tags
+      </router-link>
       <button
         @click="showScanModal = true"
         class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap"
