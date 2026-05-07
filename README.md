@@ -69,6 +69,14 @@ docker compose up --build
 - Frontend: http://localhost:8065
 - Backend API / Swagger: http://localhost:8000/docs
 
+For live frontend development with Vite inside Docker Compose, run:
+
+```bash
+docker compose --profile dev up frontend-dev backend
+```
+
+Then open http://localhost:5173.
+
 Once running, click **Scan Directory** in the UI and enter `/app/images` to index the mounted folder.
 
 ### Mount a local images folder

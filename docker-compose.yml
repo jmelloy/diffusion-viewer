@@ -5,10 +5,12 @@ services:
       - "8000:8000"
     environment:
       - DATABASE_URL=sqlite:////data/diffusion_viewer.db
+      - IMAGE_DIR=/images
     volumes:
       - ./backend:/app
       - backend-data:/data
       - backend-thumbnails:/app/thumbnails
+      - ${IMAGE_DIR:-./images}:/images
     command: sh -c "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000"
     restart: unless-stopped
 
@@ -18,31 +20,27 @@ services:
       - "8065:80"
     depends_on:
       - backend
-    networks:
-      - app-network
     restart: unless-stopped
 
-networks:
-  app-network:
-    driver: bridge
-
-volumes:
-  # Uncomment to use a named volume for images instead of the bind mount above:
-  # images_data:
-  db_data:
-  thumbnails_data:
-    container_name: diffusion-viewer-backend
-    ports:
-      - "8000:8000"
+  frontend-dev:
+    image: node:20-alpine
+    profiles:
+      - dev
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5173"
     environment:
-      - DATABASE_URL=sqlite:////data/diffusion_viewer.db
+      - VITE_PROXY_TARGET=http://backend:8000
     volumes:
-      - ./backend:/app
-      - backend-data:/data
-      - backend-thumbnails:/app/thumbnails
-    command: sh -c "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000"
+      - ./frontend:/app
+      - frontend-node-modules:/app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
     restart: unless-stopped
+
 
 volumes:
   backend-data:
   backend-thumbnails:
+  frontend-node-modules:
