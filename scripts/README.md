@@ -21,6 +21,7 @@ Some scripts depend on local library modules (`lib/`) from the photosafe project
 | `convert_to_xmp.py` | Convert image metadata JSON files to XMP sidecar files (Dublin Core, EXIF, XMP, Photoshop namespaces) |
 | `extract_civit.py` | Fetch generations from the Civitai API (requires `CIVITAI_API_TOKEN`), download images and create XMP sidecars |
 | `convert_to_markdown.py` | Convert image metadata JSON to Obsidian-compatible Markdown with YAML frontmatter; uses Ollama (gemma3:4b) to extract character names from prompts |
+| `convert_to_sidecar.py` | Walk a directory of AI-generated images, extract metadata via the appropriate format-specific processor (Mage, ComfyUI, Civitai, Invoke, Leonardo, ...), and write a JSON sidecar next to each image in the canonical shape produced by `mage_download.py` and consumed by the diffusion-viewer scanner. Optionally uses Ollama (gemma3:4b) to extract character-name tags from prompts (`--no-tags` to skip). |
 | `invoke.py` | Read an Invoke AI SQLite database and generate JSON/XMP sidecar files for every image |
 | `mage.py` | Scrape a Mage.space user gallery (requires browser session cookies), download images and create XMP sidecars |
 | `leonardo.py` | Fetch a Leonardo.ai user's generated images via GraphQL API (requires auth token) and download them organised by date |
