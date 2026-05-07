@@ -34,14 +34,96 @@
       </select>
     </div>
 
-    <div class="text-xs text-gray-500 mb-2">
-      {{ filteredTags.length }} of {{ store.allTags.length }} tags
+    <div class="text-xs text-gray-500 mb-2 flex items-center gap-3">
+      <span>{{ filteredTags.length }} of {{ store.allTags.length }} tags</span>
+      <span v-if="selectedIds.size">· {{ selectedIds.size }} selected</span>
+    </div>
+
+    <!-- Bulk action bar -->
+    <div
+      v-if="selectedIds.size"
+      class="sticky top-0 z-10 mb-3 bg-gray-800 border border-gray-700 rounded-lg p-3 flex flex-wrap items-center gap-3 shadow-lg"
+    >
+      <span class="text-sm text-white font-medium">{{ selectedIds.size }} selected</span>
+
+      <div class="flex items-center gap-1">
+        <select
+          v-model="bulkParentId"
+          :disabled="bulkBusy"
+          class="bg-gray-700 border border-gray-600 text-white rounded px-2 py-1 text-xs"
+        >
+          <option value="">Set parent: — none —</option>
+          <option
+            v-for="opt in bulkParentOptions"
+            :key="opt.id"
+            :value="opt.id"
+          >
+            {{ opt.name }}
+          </option>
+        </select>
+        <button
+          @click="bulkSetParent"
+          :disabled="bulkBusy"
+          class="bg-blue-700 hover:bg-blue-600 disabled:opacity-40 text-white px-2 py-1 rounded text-xs"
+        >
+          Apply parent
+        </button>
+      </div>
+
+      <div class="flex items-center gap-1">
+        <select
+          v-model="bulkMergeTargetId"
+          :disabled="bulkBusy"
+          class="bg-gray-700 border border-gray-600 text-white rounded px-2 py-1 text-xs"
+        >
+          <option value="">Merge into…</option>
+          <option
+            v-for="opt in bulkMergeTargetOptions"
+            :key="opt.id"
+            :value="opt.id"
+          >
+            {{ opt.name }}
+          </option>
+        </select>
+        <button
+          @click="bulkMerge"
+          :disabled="!bulkMergeTargetId || bulkBusy"
+          class="bg-indigo-700 hover:bg-indigo-600 disabled:opacity-40 text-white px-2 py-1 rounded text-xs"
+        >
+          Merge selected
+        </button>
+      </div>
+
+      <button
+        @click="bulkDelete"
+        :disabled="bulkBusy"
+        class="bg-red-700 hover:bg-red-600 disabled:opacity-40 text-white px-2 py-1 rounded text-xs"
+      >
+        Delete selected
+      </button>
+
+      <button
+        @click="clearSelection"
+        :disabled="bulkBusy"
+        class="ml-auto text-gray-300 hover:text-white text-xs underline"
+      >
+        Clear
+      </button>
     </div>
 
     <div class="overflow-x-auto border border-gray-700 rounded-lg">
       <table class="w-full text-sm">
         <thead class="bg-gray-800 text-gray-400 uppercase text-xs">
           <tr>
+            <th class="px-3 py-2 w-8">
+              <input
+                type="checkbox"
+                :checked="allVisibleSelected"
+                :indeterminate.prop="someVisibleSelected"
+                @change="toggleSelectAllVisible"
+                aria-label="Select all visible tags"
+              />
+            </th>
             <th class="px-3 py-2 text-left">Tag</th>
             <th class="px-3 py-2 text-left">Parent</th>
             <th class="px-3 py-2 text-right">Images</th>
@@ -52,7 +134,7 @@
         </thead>
         <tbody>
           <tr v-if="!filteredTags.length">
-            <td colspan="6" class="px-3 py-6 text-center text-gray-500 italic">
+            <td colspan="7" class="px-3 py-6 text-center text-gray-500 italic">
               No matching tags
             </td>
           </tr>
@@ -60,7 +142,16 @@
             v-for="tag in filteredTags"
             :key="tag.id"
             class="border-t border-gray-700 hover:bg-gray-800/40"
+            :class="{ 'bg-gray-800/60': selectedIds.has(tag.id) }"
           >
+            <td class="px-3 py-2">
+              <input
+                type="checkbox"
+                :checked="selectedIds.has(tag.id)"
+                @change="toggleSelect(tag.id)"
+                :aria-label="`Select ${tag.name}`"
+              />
+            </td>
             <td class="px-3 py-2">
               <div class="font-medium text-white">{{ tag.name }}</div>
               <div v-if="tag.path && tag.path !== tag.name" class="text-xs text-gray-500">
@@ -152,6 +243,11 @@ const messageError = ref(false)
 const recomputing = ref(false)
 const mergeTargets = reactive({})
 
+const selectedIds = ref(new Set())
+const bulkBusy = ref(false)
+const bulkParentId = ref('')
+const bulkMergeTargetId = ref('')
+
 onMounted(() => {
   if (!store.allTags.length) store.fetchAllTags()
 })
@@ -204,6 +300,60 @@ const filteredTags = computed(() => {
     sorted.sort((a, b) => (b.image_count || 0) - (a.image_count || 0))
   }
   return sorted
+})
+
+const allVisibleSelected = computed(() => {
+  return filteredTags.value.length > 0 &&
+    filteredTags.value.every((t) => selectedIds.value.has(t.id))
+})
+
+const someVisibleSelected = computed(() => {
+  const sel = filteredTags.value.filter((t) => selectedIds.value.has(t.id)).length
+  return sel > 0 && sel < filteredTags.value.length
+})
+
+function toggleSelect(id) {
+  const next = new Set(selectedIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  selectedIds.value = next
+}
+
+function toggleSelectAllVisible() {
+  const next = new Set(selectedIds.value)
+  if (allVisibleSelected.value) {
+    for (const t of filteredTags.value) next.delete(t.id)
+  } else {
+    for (const t of filteredTags.value) next.add(t.id)
+  }
+  selectedIds.value = next
+}
+
+function clearSelection() {
+  selectedIds.value = new Set()
+  bulkParentId.value = ''
+  bulkMergeTargetId.value = ''
+}
+
+// Parent options for bulk: exclude any selected tag (can't be its own parent)
+// and any descendant of a selected tag (would create a cycle).
+const bulkParentOptions = computed(() => {
+  const blocked = new Set()
+  for (const id of selectedIds.value) {
+    for (const d of descendantIds(id)) blocked.add(d)
+  }
+  return store.allTags
+    .filter((t) => !blocked.has(t.id))
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name))
+})
+
+// Merge target options: exclude any tag that is selected (can't be source AND target).
+const bulkMergeTargetOptions = computed(() => {
+  return store.allTags
+    .filter((t) => !selectedIds.value.has(t.id))
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name))
 })
 
 function parentOptionsFor(tag) {
@@ -274,6 +424,72 @@ async function mergeTag(tag) {
     setMessage(e.response?.data?.detail || e.message, true)
   } finally {
     busyId.value = null
+  }
+}
+
+async function bulkDelete() {
+  const ids = [...selectedIds.value]
+  if (!ids.length) return
+  const totalImages = ids.reduce((n, id) => n + (tagsById.value.get(id)?.image_count || 0), 0)
+  const msg = totalImages
+    ? `Delete ${ids.length} tag${ids.length !== 1 ? 's' : ''}? They will be removed from ${totalImages} image association${totalImages !== 1 ? 's' : ''}.`
+    : `Delete ${ids.length} tag${ids.length !== 1 ? 's' : ''}?`
+  if (!confirm(msg)) return
+  bulkBusy.value = true
+  try {
+    const res = await axios.post('/api/tags/bulk-delete', { tag_ids: ids })
+    await store.fetchAllTags()
+    clearSelection()
+    setMessage(`Deleted ${res.data.deleted} tag${res.data.deleted !== 1 ? 's' : ''}`)
+  } catch (e) {
+    setMessage(e.response?.data?.detail || e.message, true)
+  } finally {
+    bulkBusy.value = false
+  }
+}
+
+async function bulkSetParent() {
+  const ids = [...selectedIds.value]
+  if (!ids.length) return
+  const raw = bulkParentId.value
+  const parentId = raw === '' ? null : Number(raw)
+  const parentName = parentId === null ? '— none —' : (tagsById.value.get(parentId)?.name ?? `#${parentId}`)
+  if (!confirm(`Set parent of ${ids.length} tag${ids.length !== 1 ? 's' : ''} to "${parentName}"?`)) return
+  bulkBusy.value = true
+  try {
+    const res = await axios.post('/api/tags/bulk-parent', {
+      tag_ids: ids,
+      parent_tag_id: parentId,
+    })
+    await store.fetchAllTags()
+    setMessage(`Updated parent on ${res.data.updated} tag${res.data.updated !== 1 ? 's' : ''}`)
+  } catch (e) {
+    setMessage(e.response?.data?.detail || e.message, true)
+  } finally {
+    bulkBusy.value = false
+  }
+}
+
+async function bulkMerge() {
+  const ids = [...selectedIds.value]
+  const targetId = Number(bulkMergeTargetId.value)
+  if (!ids.length || !targetId) return
+  const target = tagsById.value.get(targetId)
+  if (!target) return
+  if (!confirm(`Merge ${ids.length} tag${ids.length !== 1 ? 's' : ''} into "${target.name}"? Selected tags will be deleted and their images + children moved to "${target.name}".`)) return
+  bulkBusy.value = true
+  try {
+    const res = await axios.post('/api/tags/bulk-merge', {
+      source_tag_ids: ids,
+      target_tag_id: targetId,
+    })
+    await store.fetchAllTags()
+    clearSelection()
+    setMessage(`Merged ${res.data.merged} tag${res.data.merged !== 1 ? 's' : ''} into "${target.name}"`)
+  } catch (e) {
+    setMessage(e.response?.data?.detail || e.message, true)
+  } finally {
+    bulkBusy.value = false
   }
 }
 

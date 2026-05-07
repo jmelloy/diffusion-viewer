@@ -30,6 +30,20 @@ class TagMergeRequest(BaseModel):
     target_tag_id: int
 
 
+class TagBulkDeleteRequest(BaseModel):
+    tag_ids: List[int]
+
+
+class TagBulkParentRequest(BaseModel):
+    tag_ids: List[int]
+    parent_tag_id: Optional[int] = None
+
+
+class TagBulkMergeRequest(BaseModel):
+    source_tag_ids: List[int]
+    target_tag_id: int
+
+
 class ImageBase(BaseModel):
     filename: str
     filepath: str
