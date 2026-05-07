@@ -17,7 +17,9 @@ from utils.scanner import scan_directory, create_thumbnail, THUMBNAIL_DIR
 router = APIRouter(prefix="/api/images", tags=["images"])
 
 
-def apply_filters(query, db: Session, q, tags, min_rating, show_hidden, date_from, date_to):
+def apply_filters(
+    query, db: Session, q, tags, min_rating, show_hidden, date_from, date_to
+):
     if not show_hidden:
         query = query.filter(models.Image.hidden == False)
 
@@ -91,7 +93,9 @@ def list_images(
     date_to_dt = parse_dt(date_to)
 
     query = db.query(models.Image)
-    query = apply_filters(query, db, q, tags or [], min_rating, show_hidden, date_from_dt, date_to_dt)
+    query = apply_filters(
+        query, db, q, tags or [], min_rating, show_hidden, date_from_dt, date_to_dt
+    )
 
     total = query.count()
 
@@ -187,7 +191,9 @@ def serve_thumbnail(image_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/{image_id}/rating", response_model=schemas.Image)
-def update_rating(image_id: int, rating_update: schemas.RatingUpdate, db: Session = Depends(get_db)):
+def update_rating(
+    image_id: int, rating_update: schemas.RatingUpdate, db: Session = Depends(get_db)
+):
     img = db.query(models.Image).filter(models.Image.id == image_id).first()
     if not img:
         raise HTTPException(status_code=404, detail="Image not found")
@@ -197,6 +203,7 @@ def update_rating(image_id: int, rating_update: schemas.RatingUpdate, db: Sessio
     else:
         img.hidden = False
     from datetime import datetime
+
     img.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(img)
@@ -204,7 +211,9 @@ def update_rating(image_id: int, rating_update: schemas.RatingUpdate, db: Sessio
 
 
 @router.post("/{image_id}/tags", response_model=schemas.Image)
-def add_tags(image_id: int, body: schemas.TagsAddRequest, db: Session = Depends(get_db)):
+def add_tags(
+    image_id: int, body: schemas.TagsAddRequest, db: Session = Depends(get_db)
+):
     img = db.query(models.Image).filter(models.Image.id == image_id).first()
     if not img:
         raise HTTPException(status_code=404, detail="Image not found")
@@ -281,6 +290,7 @@ def bulk_remove_tag(body: schemas.BulkRemoveTagRequest, db: Session = Depends(ge
 @router.post("/bulk-rating", response_model=dict)
 def bulk_rating(body: schemas.BulkRatingRequest, db: Session = Depends(get_db)):
     from datetime import datetime
+
     images = db.query(models.Image).filter(models.Image.id.in_(body.image_ids)).all()
     for img in images:
         img.rating = body.rating
@@ -291,9 +301,18 @@ def bulk_rating(body: schemas.BulkRatingRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/scan", response_model=dict)
-def scan(body: schemas.ScanRequest, db: Session = Depends(get_db)):
+def scan(
+    body: schemas.ScanRequest = schemas.ScanRequest(), db: Session = Depends(get_db)
+):
+    import os
+
+    directory = body.directory or os.environ.get("IMAGE_DIR")
+    if not directory:
+        raise HTTPException(
+            status_code=400, detail="No directory specified and IMAGE_DIR is not set"
+        )
     try:
-        stats = scan_directory(db, body.directory)
+        stats = scan_directory(db, directory)
         return stats
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -308,6 +327,7 @@ def delete_image(image_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Image not found")
     img.hidden = True
     from datetime import datetime
+
     img.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(img)

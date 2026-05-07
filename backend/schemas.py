@@ -72,7 +72,7 @@ class RatingUpdate(BaseModel):
 
 
 class ScanRequest(BaseModel):
-    directory: str
+    directory: Optional[str] = None
 
 
 class BulkTagRequest(BaseModel):

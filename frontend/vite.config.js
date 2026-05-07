@@ -1,19 +1,21 @@
-import { defineConfig } from 'vite'
-import vue from '@vitejs/plugin-vue'
+import { defineConfig } from "vite";
+import vue from "@vitejs/plugin-vue";
+
+const proxyTarget = process.env.VITE_PROXY_TARGET || "http://localhost:8000";
 
 export default defineConfig({
   plugins: [vue()],
   server: {
     port: 5173,
     proxy: {
-      '/api': {
-        target: 'http://localhost:8000',
+      "/api": {
+        target: proxyTarget,
         changeOrigin: true,
       },
-      '/thumbnails': {
-        target: 'http://localhost:8000',
+      "/thumbnails": {
+        target: proxyTarget,
         changeOrigin: true,
       },
     },
   },
-})
+});

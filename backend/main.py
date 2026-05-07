@@ -1,6 +1,7 @@
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
+import os
 
 from alembic import command
 from alembic.config import Config
@@ -9,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from routers import images, tags, projects
+from utils.watcher import start_watcher, stop_watcher
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +35,16 @@ thumbnails_dir = Path(os.environ.get("THUMBNAIL_DIR", "./thumbnails"))
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    run_migrations()
     Path("./thumbnails").mkdir(exist_ok=True)
+    image_dir = os.environ.get("IMAGE_DIR")
+    observer = None
+    if image_dir:
+        image_dir_path = Path(image_dir)
+        image_dir_path.mkdir(parents=True, exist_ok=True)
+        observer = start_watcher(image_dir)
     yield
+    if observer:
+        stop_watcher(observer)
 
 
 app = FastAPI(title="Diffusion Viewer API", lifespan=lifespan)
