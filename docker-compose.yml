@@ -1,19 +1,26 @@
 services:
   backend:
     build: ./backend
+    # Port 8000: photosafe also defaults to 8000 — set BACKEND_PORT there if both run on the same host
     ports:
       - "8000:8000"
     environment:
       - DATABASE_URL=sqlite:////data/diffusion_viewer.db
     volumes:
-      - ./backend:/app
       - backend-data:/data
       - backend-thumbnails:/app/thumbnails
+      # To serve images from a host directory, add:
+      # - /path/to/your/images:/app/images
+      # Or to use a named volume, uncomment images_data below and add:
+      # - images_data:/app/images
     command: sh -c "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000"
     restart: unless-stopped
+    networks:
+      - app-network
 
   frontend:
     build: ./frontend
+    # Port 8065: no conflicts with other deployed services
     ports:
       - "8065:80"
     depends_on:
@@ -27,22 +34,6 @@ networks:
     driver: bridge
 
 volumes:
-  # Uncomment to use a named volume for images instead of the bind mount above:
-  # images_data:
-  db_data:
-  thumbnails_data:
-    container_name: diffusion-viewer-backend
-    ports:
-      - "8000:8000"
-    environment:
-      - DATABASE_URL=sqlite:////data/diffusion_viewer.db
-    volumes:
-      - ./backend:/app
-      - backend-data:/data
-      - backend-thumbnails:/app/thumbnails
-    command: sh -c "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000"
-    restart: unless-stopped
-
-volumes:
   backend-data:
   backend-thumbnails:
+  # images_data:
