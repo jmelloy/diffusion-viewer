@@ -899,6 +899,37 @@ def load_seeds(path: str) -> List[Dict]:
     return data.get("projects") or []
 
 
+def load_projects_from_db(db: Session) -> ProjectsProposal:
+    """Build a ProjectsProposal from the existing `project:*` tags in the DB.
+
+    Used by `project-tags` to add TF-IDF distinctive children to projects
+    that were already created — typically by `seeds --execute`. Each top-
+    level project tag becomes a `ProjectProposal` whose `image_ids` are the
+    images currently attached to that tag. Sub-category tags (anything whose
+    name starts with `project:Name:`) are ignored here — they don't get their
+    own TF-IDF pass; instead, the parent project's TF-IDF children sit
+    alongside them under the project tag.
+    """
+    tags = (
+        db.query(models.Tag)
+        .filter(models.Tag.name.like("project:%"))
+        .filter(~models.Tag.name.like("project:%:%"))
+        .all()
+    )
+    projects: List[ProjectProposal] = []
+    for t in tags:
+        img_ids = sorted(img.id for img in t.images)
+        if not img_ids:
+            continue
+        projects.append(ProjectProposal(
+            name=t.name,
+            image_ids=img_ids,
+            seed_nouns=[],
+            absorbed_count=0,
+        ))
+    return ProjectsProposal(projects=projects)
+
+
 def apply_within_project_tags(
     db: Session, proposal: ProjectsProposal
 ) -> int:

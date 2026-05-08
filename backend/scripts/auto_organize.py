@@ -186,24 +186,38 @@ def cmd_cluster(args, session: Session) -> int:
 
 
 def cmd_project_tags(args, session: Session) -> int:
-    allowed = _allowed_ids_for_cluster(args, session)
-    nouns = ao.propose_proper_nouns(
-        session,
-        min_count=args.min_noun_count,
-        max_per_image=args.max_per_image,
-        image_ids=allowed,
-    )
-    proposal = ao.propose_projects(
-        session,
-        nouns,
-        min_anchor_count=args.min_noun_count,
-        min_project_size=args.min_project_size,
-        scene_absorption_fraction=args.scene_absorption_fraction,
-        cooccurrence_overlap=args.cooccurrence_overlap,
-        cluster_threshold=args.cluster_threshold,
-        min_cluster_size=args.min_cluster_size,
-        image_ids=allowed,
-    )
+    if getattr(args, "discover", False):
+        # Unsupervised mode: re-run clustering and emit TF-IDF children for
+        # whatever clusters fall out.
+        allowed = _allowed_ids_for_cluster(args, session)
+        nouns = ao.propose_proper_nouns(
+            session,
+            min_count=args.min_noun_count,
+            max_per_image=args.max_per_image,
+            image_ids=allowed,
+        )
+        proposal = ao.propose_projects(
+            session,
+            nouns,
+            min_anchor_count=args.min_noun_count,
+            min_project_size=args.min_project_size,
+            scene_absorption_fraction=args.scene_absorption_fraction,
+            cooccurrence_overlap=args.cooccurrence_overlap,
+            cluster_threshold=args.cluster_threshold,
+            min_cluster_size=args.min_cluster_size,
+            image_ids=allowed,
+        )
+    else:
+        # Default: load projects already in the DB and add distinctive TF-IDF
+        # children to each. Use this after `seeds --execute`.
+        proposal = ao.load_projects_from_db(session)
+        if not proposal.projects:
+            print("No project:* tags found in the DB. Run `seeds --execute` "
+                  "or `cluster --execute` first, or pass --discover to run "
+                  "unsupervised clustering here.")
+            return 1
+        print(f"# loaded {len(proposal.projects)} existing projects from DB "
+              f"({sum(len(p.image_ids) for p in proposal.projects)} images total)")
     proposal = ao.propose_within_project_tags(
         session,
         proposal,
@@ -215,8 +229,9 @@ def cmd_project_tags(args, session: Session) -> int:
     if not args.execute:
         print("\nDry run. Re-run with --execute to apply.")
         return 0
-    # Make sure the parent project tags exist before we attach children.
-    ao.apply_projects(session, proposal)
+    if getattr(args, "discover", False):
+        # In discover mode, the project tags don't exist yet — create them.
+        ao.apply_projects(session, proposal)
     n = ao.apply_within_project_tags(session, proposal)
     print(f"\nCreated {n} new in-project tag links.")
     return 0
@@ -376,7 +391,10 @@ def main() -> int:
                           help="add distinctive TF-IDF tags inside each project")
     _add_common(p_pt); _add_noun_args(p_pt); _add_cluster_args(p_pt); _add_project_tag_args(p_pt)
     p_pt.add_argument("--skip-seeded", action="store_true",
-                      help="ignore images already attached to any project:* tag")
+                      help="(--discover only) ignore images already attached to any project:* tag")
+    p_pt.add_argument("--discover", action="store_true",
+                      help="re-run unsupervised clustering instead of loading "
+                           "existing project:* tags from the DB")
     p_pt.set_defaults(func=cmd_project_tags)
 
     p_all = sub.add_parser("all", help="run all four phases end-to-end")
