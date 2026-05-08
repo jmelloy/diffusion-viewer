@@ -1,0 +1,119 @@
+# Seed projects for auto_organize.py.
+#
+# Each project has:
+#   name           — what to call it (becomes `project:Name`)
+#   roles          — ordered map of role-name → list of keywords. Each keyword
+#                    is matched against image prompt + description (case-
+#                    insensitive whole-word). Matched keywords become tags
+#                    parented under `project:Name:<role>`. The role name is
+#                    optional; an entry without `roles` falls back to a flat
+#                    `keywords:` list (no sub-category).
+#
+# An image is attached to every project whose keywords (across any role) it
+# matches at least once. Each individual keyword that matches becomes a child
+# tag of its role, and the image is tagged with that child too.
+#
+# Edit freely. The script is idempotent — re-running adds new tags but won't
+# duplicate links.
+
+projects:
+  - name: "Alien Encounter"
+    roles:
+      character:
+        - sara
+        - michelle
+        - brianna
+        - bri
+        - cady
+        - stephen
+      scene:
+        - waitress
+        - diner
+        - basement
+        - lab
+        - une petite aventure
+
+  - name: "Lakehouse"
+    roles:
+      character:
+        - henry
+        - natalie
+        - heather
+      scene:
+        - lakehouse
+        - lake house
+
+  - name: "Elsie"
+    roles:
+      character:
+        - elsie
+      scene:
+        - superhero
+        - college
+
+  - name: "Red Convertible"
+    roles:
+      scene:
+        - red convertible
+        - convertible
+        - abducted
+        - amnesia
+
+  - name: "Peru Aliens"
+    roles:
+      scene:
+        - peru
+        - andes
+        - machu picchu
+
+  - name: "Clue"
+    roles:
+      character:
+        - colonel mustard
+        - miss scarlett
+        - professor plum
+        - mrs peacock
+        - mrs white
+        - reverend green
+      scene:
+        - hall
+        - study
+        - kitchen
+        - dining room
+        - ballroom
+        - library
+        - billiard room
+        - conservatory
+        - lounge
+        - grand staircase
+        - cluedo mansion
+      weapon:
+        - knife
+        - rope
+        - revolver
+        - candlestick
+        - wrench
+        - lead pipe
+    keywords:
+      - cluedo
+      - clue
+
+  - name: "Card Game"
+    roles:
+      suit:
+        - hearts
+        - spades
+        - clubs
+        - diamonds
+    keywords:
+      - card design
+      - playing card
+
+  - name: "Steampunk Factory"
+    roles:
+      scene:
+        - factory floor
+        - pixelated factory
+    keywords:
+      - steampunk
+      - pixelated

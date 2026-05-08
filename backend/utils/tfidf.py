@@ -64,8 +64,13 @@ def _clean_text(text: str) -> str:
 
 
 def _strip_for_proper_nouns(text: str) -> str:
-    """Strip punctuation but preserve case so PROPER_NOUN_RE can match."""
-    text = re.sub(r"[<>\[\]{}()|\\/:;\"'`~@#$%^&*+=]", " ", text)
+    """Strip punctuation but preserve case so PROPER_NOUN_RE can match.
+
+    Slashes and similar token-joining punctuation are replaced with " . " so
+    PROPER_NOUN_RE can't pull `Hall/Entryway` into a single multi-word phrase
+    (the leading `.` breaks the multi-word continuation in the regex).
+    """
+    text = re.sub(r"[<>\[\]{}()|\\/:;\"'`~@#$%^&*+=]", " . ", text)
     return re.sub(r"\s+", " ", text).strip()
 
 
