@@ -81,6 +81,9 @@ class ProjectProposal:
     # Filled in by phase 4 (project-tags):
     distinctive_terms: List[Tuple[str, float]] = field(default_factory=list)
     term_image_map: Dict[str, List[int]] = field(default_factory=dict)
+    # term -> classification ("character" | "scene" | "subproject"). If absent,
+    # the term is parented directly under the project (legacy behavior).
+    term_role: Dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -614,17 +617,31 @@ def propose_within_project_tags(
     top_n_per_project: int = 25,
     top_n_per_image: int = 6,
     min_distinctive_score: float = 1.5,
+    subproject_overlap: float = 0.8,
+    nouns_proposal: Optional[ProperNounProposal] = None,
 ) -> ProjectsProposal:
     """For each project, find terms whose mean in-cluster TF-IDF is `min_distinctive_score`x
     higher than their mean out-of-cluster TF-IDF. Tags chosen this way become
     candidate children of the project. Then pick the top `top_n_per_image`
     candidates per image as that image's project-scoped tag set.
 
-    Mutates `proposal.projects` in place by populating `distinctive_terms`
-    and `term_image_map`. Returns the same proposal for chaining.
+    Each term is classified as `character` (matches a proper noun extracted
+    from the source text), `subproject` (multi-word phrase whose images
+    overlap >= `subproject_overlap` with an existing role-child of the
+    project), or `scene` (everything else). Pass a `nouns_proposal` to enable
+    character classification; otherwise it falls back to scene/subproject.
+
+    Mutates `proposal.projects` in place by populating `distinctive_terms`,
+    `term_image_map`, and `term_role`. Returns the same proposal for chaining.
     """
     if not proposal.projects:
         return proposal
+
+    # Build the proper-noun lookup (lower-cased) once.
+    proper_noun_lower: Set[str] = set()
+    if nouns_proposal is not None:
+        proper_noun_lower.update(nouns_proposal.description_nouns.keys())
+        proper_noun_lower.update(nouns_proposal.prompt_nouns.keys())
 
     corpus = _build_text_corpus(db)
     if not corpus:
@@ -713,7 +730,68 @@ def propose_within_project_tags(
                 term_to_imgs[kept[k][0]].append(img_id)
         project.term_image_map = {t: sorted(set(v)) for t, v in term_to_imgs.items()}
 
+        # Classify each term: character / subproject / scene.
+        # Order of checks:
+        #   1. Term is already an existing role child of this project — reuse
+        #      its role (so seed-curated `sara` stays a character even if it
+        #      appears lowercase in prompts).
+        #   2. Multi-word term that strongly overlaps an existing role child
+        #      → subproject.
+        #   3. Term is a proper noun (capitalized in source text) → character.
+        #   4. Else → scene.
+        existing = _existing_role_children(db, project.name)
+        term_role: Dict[str, str] = {}
+        for term, _score in kept:
+            term_imgs = set(project.term_image_map.get(term, []))
+            classification = None
+            if term in existing:
+                classification = existing[term][0]
+            elif term_imgs and " " in term:
+                for kw, (_role, kw_imgs) in existing.items():
+                    if not kw_imgs or kw == term:
+                        continue
+                    overlap = len(term_imgs & kw_imgs)
+                    smaller = min(len(term_imgs), len(kw_imgs))
+                    if smaller and overlap / smaller >= subproject_overlap:
+                        classification = "subproject"
+                        break
+            if classification is None:
+                classification = "character" if term in proper_noun_lower else "scene"
+            term_role[term] = classification
+        project.term_role = term_role
+
     return proposal
+
+
+def _existing_role_children(
+    db: Session, project_name: str
+) -> Dict[str, Tuple[str, Set[int]]]:
+    """For a project tag like `project:Clue`, return {child_keyword_name:
+    (role_name, image_set)} for every grandchild. The role is the suffix
+    after the project name in the parent's full name, e.g. `character`
+    for `project:Clue:character`.
+    """
+    role_parents = db.query(models.Tag).filter(
+        models.Tag.name.like(f"{project_name}:%")
+    ).all()
+    if not role_parents:
+        return {}
+    role_by_parent_id: Dict[int, str] = {}
+    for rp in role_parents:
+        suffix = rp.name[len(project_name) + 1:]  # strip "project:Name:"
+        # Skip nested grandchild paths — only keep direct role parents.
+        if ":" in suffix:
+            continue
+        role_by_parent_id[rp.id] = suffix
+    if not role_by_parent_id:
+        return {}
+    grandchildren = db.query(models.Tag).filter(
+        models.Tag.parent_tag_id.in_(role_by_parent_id.keys())
+    ).all()
+    return {
+        t.name: (role_by_parent_id[t.parent_tag_id], {img.id for img in t.images})
+        for t in grandchildren
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -933,7 +1011,13 @@ def load_projects_from_db(db: Session) -> ProjectsProposal:
 def apply_within_project_tags(
     db: Session, proposal: ProjectsProposal
 ) -> int:
-    """Create child tags under each project tag and link images. Returns links created."""
+    """Create child tags under each project tag and link images.
+
+    Each term is parented under `project:Name:<role>` where role is taken
+    from `project.term_role` (`character` / `scene` / `subproject`). If
+    `term_role` is empty the term is parented directly under the project
+    tag (legacy behavior).
+    """
     created_links = 0
     project_tag_by_name = {
         t.name: t for t in db.query(models.Tag).filter(
@@ -948,21 +1032,44 @@ def apply_within_project_tags(
             # apply_projects must run first
             logger.warning(f"Project tag {project.name} not found; skipping.")
             continue
+
+        # Cache role-intermediate parents (`project:Name:character` etc.)
+        role_parents: Dict[str, models.Tag] = {}
+
+        def _role_parent(role: str) -> models.Tag:
+            full = f"{project.name}:{role}"
+            if full in role_parents:
+                return role_parents[full]
+            t = db.query(models.Tag).filter(models.Tag.name == full).first()
+            if t is None:
+                t = models.Tag(name=full, parent_tag_id=parent.id)
+                db.add(t)
+                db.flush()
+            elif t.parent_tag_id != parent.id:
+                t.parent_tag_id = parent.id
+            role_parents[full] = t
+            return t
+
         # Pre-fetch all child tag names that already exist
         child_names = list(project.term_image_map.keys())
         existing_children = {
             t.name: t for t in db.query(models.Tag).filter(models.Tag.name.in_(child_names))
         }
         for term, image_ids in project.term_image_map.items():
+            role = project.term_role.get(term)
+            target_parent = _role_parent(role) if role else parent
             child = existing_children.get(term)
             if child is None:
-                child = models.Tag(name=term, parent_tag_id=parent.id)
+                child = models.Tag(name=term, parent_tag_id=target_parent.id)
                 db.add(child)
                 db.flush()
                 existing_children[term] = child
             elif child.parent_tag_id is None:
-                # Adopt orphan tags into this project
-                child.parent_tag_id = parent.id
+                # Adopt orphan tags into the right role parent
+                child.parent_tag_id = target_parent.id
+            elif role and child.parent_tag_id == parent.id:
+                # Re-parent flat children into the role bucket on re-runs
+                child.parent_tag_id = target_parent.id
             existing_links = {img.id for img in child.images}
             for img_id in image_ids:
                 if img_id in existing_links:

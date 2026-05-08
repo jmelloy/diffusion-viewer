@@ -94,9 +94,18 @@ def _print_project_tags(p: ao.ProjectsProposal, per_project_limit: int = 12) -> 
         if not pr.distinctive_terms:
             continue
         print(f"\n  {pr.name} ({len(pr.image_ids)} images)")
+        # Group by role for readability.
+        by_role: dict[str, list[tuple[str, float]]] = {}
         for term, score in pr.distinctive_terms[:per_project_limit]:
-            n = len(pr.term_image_map.get(term, []))
-            print(f"    {term:<28} score={score:6.3f}  imgs={n}")
+            role = pr.term_role.get(term, "(unclassified)")
+            by_role.setdefault(role, []).append((term, score))
+        for role in ("character", "scene", "subproject", "(unclassified)"):
+            if role not in by_role:
+                continue
+            print(f"    {role}:")
+            for term, score in by_role[role]:
+                n = len(pr.term_image_map.get(term, []))
+                print(f"      {term:<28} score={score:6.3f}  imgs={n}")
 
 
 # --------------------------------------------------------------------------- #
@@ -218,12 +227,20 @@ def cmd_project_tags(args, session: Session) -> int:
             return 1
         print(f"# loaded {len(proposal.projects)} existing projects from DB "
               f"({sum(len(p.image_ids) for p in proposal.projects)} images total)")
+        # Need a noun proposal for character/scene classification.
+        nouns = ao.propose_proper_nouns(
+            session,
+            min_count=args.min_noun_count,
+            max_per_image=args.max_per_image,
+        )
     proposal = ao.propose_within_project_tags(
         session,
         proposal,
         top_n_per_project=args.top_n_per_project,
         top_n_per_image=args.top_n_per_image,
         min_distinctive_score=args.min_distinctive,
+        subproject_overlap=args.subproject_overlap,
+        nouns_proposal=nouns,
     )
     _print_project_tags(proposal, per_project_limit=args.show_top)
     if not args.execute:
@@ -305,6 +322,8 @@ def cmd_all(args, session: Session) -> int:
         top_n_per_project=args.top_n_per_project,
         top_n_per_image=args.top_n_per_image,
         min_distinctive_score=args.min_distinctive,
+        subproject_overlap=args.subproject_overlap,
+        nouns_proposal=nouns,
     )
     _print_project_tags(projects, per_project_limit=args.show_top)
     if args.execute:
@@ -364,6 +383,10 @@ def _add_project_tag_args(p: argparse.ArgumentParser) -> None:
                    help="max project tags applied per image (default: 6)")
     p.add_argument("--min-distinctive", type=float, default=1.5,
                    help="min in-cluster/out-cluster TF-IDF ratio (default: 1.5)")
+    p.add_argument("--subproject-overlap", type=float, default=0.8,
+                   help="multi-word TF-IDF terms whose images overlap an "
+                        "existing role-child by this fraction become subprojects "
+                        "instead of plain scenes (default: 0.8)")
 
 
 def main() -> int:
