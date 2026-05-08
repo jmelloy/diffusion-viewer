@@ -5,6 +5,7 @@ For each image carrying the bare role tag, look at its standalone tags
 (suspects, weapons, rooms, scenes) and add a project:clue:<role>:<value>
 tag for each match. Then delete the bare role tags entirely.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -16,28 +17,53 @@ DB = Path(__file__).resolve().parent.parent / "backend" / "diffusion_viewer.db"
 
 # 21 cards — assigned to the "character" role
 CARDS = [
-    "colonel mustard", "professor plum", "miss scarlett",
-    "mrs peacock", "mrs white", "reverend green",
-    "knife", "rope", "revolver", "candlestick", "wrench", "lead pipe",
-    "hall", "study", "kitchen", "dining room", "ballroom",
-    "library", "billiard room", "conservatory", "lounge",
+    "colonel mustard",
+    "professor plum",
+    "miss scarlett",
+    "mrs peacock",
+    "mrs white",
+    "reverend green",
+    "knife",
+    "rope",
+    "revolver",
+    "candlestick",
+    "wrench",
+    "lead pipe",
+    "hall",
+    "study",
+    "kitchen",
+    "dining room",
+    "ballroom",
+    "library",
+    "billiard room",
+    "conservatory",
+    "lounge",
 ]
 
 # Locations — assigned to the "scene" role
 SCENES = [
-    "hall", "study", "kitchen", "dining room", "ballroom",
-    "library", "billiard room", "conservatory", "lounge",
-    "grand staircase", "clue mansion",
+    "hall",
+    "study",
+    "kitchen",
+    "dining room",
+    "ballroom",
+    "library",
+    "billiard room",
+    "conservatory",
+    "lounge",
+    "grand staircase",
+    "clue mansion",
 ]
 
 
-def ensure_tag(cur, name: str, parent_id: int) -> int:
+def ensure_tag(cur, name: str, parent_id: int | None) -> int:
     cur.execute("SELECT id FROM tags WHERE name = ?", (name,))
     row = cur.fetchone()
     if row:
         return row[0]
     cur.execute(
-        "INSERT INTO tags (name, parent_tag_id) VALUES (?, ?)", (name, parent_id),
+        "INSERT INTO tags (name, parent_tag_id) VALUES (?, ?)",
+        (name, parent_id),
     )
     return cur.lastrowid
 
@@ -50,12 +76,11 @@ def main() -> int:
     conn = sqlite3.connect(DB)
     cur = conn.cursor()
 
-    cur.execute("SELECT id FROM tags WHERE name = 'project:clue'")
-    project_id = cur.fetchone()[0]
+    project_id = ensure_tag(cur, "project:Clue", None)
 
     plans = [("character", CARDS), ("scene", SCENES)]
     for role, values in plans:
-        bare_name = f"project:clue:{role}"
+        bare_name = f"project:Clue:{role}"
         cur.execute("SELECT id FROM tags WHERE name = ?", (bare_name,))
         bare = cur.fetchone()
         if not bare:
@@ -79,7 +104,7 @@ def main() -> int:
         breakdown = cur.fetchall()
         print(f"\n{role}: would create {len(breakdown)} value-tags")
         for name, n in breakdown:
-            print(f"  project:clue:{role}:{name}  ({n} images)")
+            print(f"  project:Clue:{role}:{name.title()}  ({n} images)")
 
     if not args.execute:
         print("\nDry run.")
@@ -130,8 +155,10 @@ def main() -> int:
         cur.execute("DELETE FROM tags WHERE id = ?", (bare_id,))
 
     conn.commit()
-    print(f"\nAdded {total_added} value-specific role links. "
-          f"Removed {total_dropped_links} bare-role links + 2 bare role tags.")
+    print(
+        f"\nAdded {total_added} value-specific role links. "
+        f"Removed {total_dropped_links} bare-role links + 2 bare role tags."
+    )
     return 0
 
 
