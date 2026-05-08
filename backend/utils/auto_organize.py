@@ -334,6 +334,7 @@ def propose_projects(
     cluster_threshold: float = 0.18,
     min_cluster_size: int = 5,
     cooccurrence_overlap: float = 0.3,
+    image_ids: Optional[Sequence[int]] = None,
     min_noun_count: int = 3,
     min_cooccurrence: int = 1,
 ) -> ProjectsProposal:
@@ -365,8 +366,17 @@ def propose_projects(
     if not nouns_proposal.nouns:
         return ProjectsProposal()
 
-    desc_nouns = nouns_proposal.description_nouns
-    prompt_nouns = nouns_proposal.prompt_nouns
+    # Restrict every per-image set to `image_ids` if given, so cluster can
+    # ignore images already covered by seed projects.
+    allowed: Optional[Set[int]] = set(image_ids) if image_ids is not None else None
+
+    def _filter(ids: Iterable[int]) -> Set[int]:
+        if allowed is None:
+            return set(ids)
+        return {i for i in ids if i in allowed}
+
+    desc_nouns = {n: list(_filter(ids)) for n, ids in nouns_proposal.description_nouns.items()}
+    prompt_nouns = {n: list(_filter(ids)) for n, ids in nouns_proposal.prompt_nouns.items()}
 
     # ---- Step A: gather anchors ----
     # Stored as: {noun: (source, image_ids_set)} — description wins if a
@@ -470,7 +480,7 @@ def propose_projects(
     project_anchors: Set[str] = set(project_anchor_of)
 
     # ---- Step D: TF-IDF centroid absorption for un-anchored images ----
-    corpus = _build_text_corpus(db)
+    corpus = _build_text_corpus(db, image_ids=image_ids)
     all_ids = {row[0] for row in corpus}
     if corpus and project_anchors:
         ids_list = [c[0] for c in corpus]

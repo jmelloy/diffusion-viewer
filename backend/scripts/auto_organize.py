@@ -134,11 +134,36 @@ def cmd_proper_nouns(args, session: Session) -> int:
     return 0
 
 
+def _seeded_image_ids(session: Session) -> set[int]:
+    """Image ids already attached to any tag whose name starts with `project:`."""
+    from sqlalchemy import text
+    rows = session.execute(text(
+        "SELECT DISTINCT it.image_id FROM image_tags it "
+        "JOIN tags t ON t.id = it.tag_id "
+        "WHERE t.name LIKE 'project:%'"
+    )).all()
+    return {r[0] for r in rows}
+
+
+def _allowed_ids_for_cluster(args, session: Session) -> list[int] | None:
+    if not getattr(args, "skip_seeded", False):
+        return None
+    seeded = _seeded_image_ids(session)
+    from sqlalchemy import text
+    all_rows = session.execute(text("SELECT id FROM images")).all()
+    allowed = [r[0] for r in all_rows if r[0] not in seeded]
+    print(f"# --skip-seeded: ignoring {len(seeded)} already-projected images, "
+          f"clustering over {len(allowed)} leftovers")
+    return allowed
+
+
 def cmd_cluster(args, session: Session) -> int:
+    allowed = _allowed_ids_for_cluster(args, session)
     nouns = ao.propose_proper_nouns(
         session,
         min_count=args.min_noun_count,
         max_per_image=args.max_per_image,
+        image_ids=allowed,
     )
     proposal = ao.propose_projects(
         session,
@@ -149,6 +174,7 @@ def cmd_cluster(args, session: Session) -> int:
         cooccurrence_overlap=args.cooccurrence_overlap,
         cluster_threshold=args.cluster_threshold,
         min_cluster_size=args.min_cluster_size,
+        image_ids=allowed,
     )
     _print_projects(proposal)
     if not args.execute:
@@ -160,10 +186,12 @@ def cmd_cluster(args, session: Session) -> int:
 
 
 def cmd_project_tags(args, session: Session) -> int:
+    allowed = _allowed_ids_for_cluster(args, session)
     nouns = ao.propose_proper_nouns(
         session,
         min_count=args.min_noun_count,
         max_per_image=args.max_per_image,
+        image_ids=allowed,
     )
     proposal = ao.propose_projects(
         session,
@@ -174,6 +202,7 @@ def cmd_project_tags(args, session: Session) -> int:
         cooccurrence_overlap=args.cooccurrence_overlap,
         cluster_threshold=args.cluster_threshold,
         min_cluster_size=args.min_cluster_size,
+        image_ids=allowed,
     )
     proposal = ao.propose_within_project_tags(
         session,
@@ -337,11 +366,17 @@ def main() -> int:
 
     p_cl = sub.add_parser("cluster", help="group images into projects")
     _add_common(p_cl); _add_noun_args(p_cl); _add_cluster_args(p_cl)
+    p_cl.add_argument("--skip-seeded", action="store_true",
+                      help="ignore images already attached to any project:* tag "
+                           "(typically those placed by the seeds command). Useful "
+                           "for finding projects you haven't declared in seeds.yaml.")
     p_cl.set_defaults(func=cmd_cluster)
 
     p_pt = sub.add_parser("project-tags",
                           help="add distinctive TF-IDF tags inside each project")
     _add_common(p_pt); _add_noun_args(p_pt); _add_cluster_args(p_pt); _add_project_tag_args(p_pt)
+    p_pt.add_argument("--skip-seeded", action="store_true",
+                      help="ignore images already attached to any project:* tag")
     p_pt.set_defaults(func=cmd_project_tags)
 
     p_all = sub.add_parser("all", help="run all four phases end-to-end")
