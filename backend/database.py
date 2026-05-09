@@ -2,11 +2,12 @@ import os
 
 from sqlmodel import SQLModel, create_engine, Session
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./diffusion_viewer.db")
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql+psycopg2://diffusion:diffusion@localhost:5432/diffusion_viewer",
+)
 
-connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-
-engine = create_engine(DATABASE_URL, connect_args=connect_args)
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
 
 def get_db():

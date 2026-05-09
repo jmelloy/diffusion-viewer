@@ -41,14 +41,14 @@ def apply_filters(
         )
 
     if tags:
-        for tag_name in tags:
+        for idx, tag_name in enumerate(tags):
             anchor = (
                 select(models.Tag.id)
                 .where(models.Tag.name == tag_name)
-                .cte(name="tag_descendants", recursive=True)
+                .cte(name=f"tag_descendants_{idx}", recursive=True)
             )
             child = aliased(models.Tag)
-            descendants = anchor.union_all(
+            descendants = anchor.union(
                 select(child.id).where(child.parent_tag_id == anchor.c.id)
             )
             query = query.filter(
@@ -77,20 +77,24 @@ def list_images(
     sort_dir: str = Query("desc"),
     db: Session = Depends(get_db),
 ):
-    from datetime import datetime
+    from datetime import datetime, timedelta
 
-    def parse_dt(s):
+    def parse_dt(s, end_of_day=False):
         if not s:
             return None
-        for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
-            try:
-                return datetime.strptime(s, fmt)
-            except ValueError:
-                pass
-        return None
+        try:
+            return datetime.strptime(s, "%Y-%m-%dT%H:%M:%S")
+        except ValueError:
+            pass
+        try:
+            d = datetime.strptime(s, "%Y-%m-%d")
+            # A bare date as date_to should be inclusive of the whole day.
+            return d + timedelta(days=1) - timedelta(microseconds=1) if end_of_day else d
+        except ValueError:
+            return None
 
     date_from_dt = parse_dt(date_from)
-    date_to_dt = parse_dt(date_to)
+    date_to_dt = parse_dt(date_to, end_of_day=True)
 
     query = db.query(models.Image)
     query = apply_filters(

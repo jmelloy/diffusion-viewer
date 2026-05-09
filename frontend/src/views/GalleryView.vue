@@ -1,6 +1,6 @@
 <template>
   <div class="flex h-[calc(100vh-57px)]">
-    <!-- Sidebar Filters -->
+    <!-- Left sidebar: filters (rating, dates, sort) -->
     <aside class="w-64 bg-gray-800 border-r border-gray-700 overflow-y-auto p-4 flex-shrink-0">
       <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Filters</h2>
 
@@ -39,7 +39,7 @@
         <div class="flex items-center justify-between mb-2">
           <label class="block text-xs text-gray-400 uppercase tracking-wider">Browse by Date</label>
           <button
-            v-if="selectedDay"
+            v-if="selectedDay || selectedMonth"
             @click="clearDateFilter"
             class="text-xs text-purple-400 hover:text-purple-300"
           >
@@ -50,7 +50,7 @@
           No dates available
         </div>
         <div v-else class="text-sm select-none">
-          <div v-for="(months, year) in dateTree" :key="year" class="mb-0.5">
+          <div v-for="{ year, months } in dateTree" :key="year" class="mb-0.5">
             <!-- Year row -->
             <button
               @click="toggleYear(year)"
@@ -61,16 +61,29 @@
             </button>
             <!-- Months -->
             <div v-if="expandedYears.has(year)" class="ml-3">
-              <div v-for="(days, month) in months" :key="month" class="mb-0.5">
-                <!-- Month row -->
-                <button
-                  @click="toggleMonth(`${year}-${month}`)"
-                  class="flex items-center gap-1 w-full text-left text-gray-400 hover:text-gray-200 py-0.5 rounded hover:bg-gray-700 px-1"
+              <div v-for="{ month, days } in months" :key="month" class="mb-0.5">
+                <!-- Month row: chevron toggles expand; rest selects the month range -->
+                <div
+                  :class="[
+                    'flex items-center gap-1 w-full rounded px-1',
+                    selectedMonth === `${year}-${month}`
+                      ? 'bg-purple-700 text-white'
+                      : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200',
+                  ]"
                 >
-                  <span class="text-gray-500 text-xs w-3 flex-shrink-0">{{ expandedMonths.has(`${year}-${month}`) ? '▾' : '▸' }}</span>
-                  <span>{{ monthName(month) }}</span>
-                  <span class="text-gray-600 ml-auto text-xs">{{ days.reduce((s, d) => s + d.count, 0) }}</span>
-                </button>
+                  <button
+                    @click="toggleMonth(`${year}-${month}`)"
+                    class="text-xs w-3 flex-shrink-0 text-gray-500 hover:text-gray-300 py-0.5"
+                    :aria-label="expandedMonths.has(`${year}-${month}`) ? 'Collapse month' : 'Expand month'"
+                  >{{ expandedMonths.has(`${year}-${month}`) ? '▾' : '▸' }}</button>
+                  <button
+                    @click="selectMonth(year, month)"
+                    class="flex items-center gap-1 flex-1 text-left py-0.5"
+                  >
+                    <span>{{ monthName(month) }}</span>
+                    <span :class="['ml-auto text-xs', selectedMonth === `${year}-${month}` ? 'text-purple-200' : 'text-gray-600']">{{ days.reduce((s, d) => s + d.count, 0) }}</span>
+                  </button>
+                </div>
                 <!-- Days -->
                 <div v-if="expandedMonths.has(`${year}-${month}`)" class="ml-3">
                   <button
@@ -117,24 +130,117 @@
         </select>
       </div>
 
+    </aside>
+
+    <!-- Bulk assign-to-project modal -->
+    <BulkProjectModal
+      v-if="showBulkProjectModal"
+      :image-ids="store.selectedImageIds"
+      @close="showBulkProjectModal = false"
+      @assigned="onBulkAssigned"
+    />
+
+    <!-- Gallery -->
+    <main class="flex-1 overflow-y-auto p-4" ref="galleryEl">
+      <!-- Loading / empty states -->
+      <div v-if="store.loading && !store.images.length" class="flex items-center justify-center h-64">
+        <div class="text-gray-400 text-lg">Loading…</div>
+      </div>
+      <div v-else-if="!store.images.length" class="flex flex-col items-center justify-center h-64 gap-4">
+        <div class="text-6xl">🖼️</div>
+        <p class="text-gray-400 text-lg">No images found.</p>
+        <p class="text-gray-500 text-sm">Use "Scan Directory" to add images.</p>
+      </div>
+
+      <!-- Continuous grid with inline date headers -->
+      <template v-else>
+        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 items-end">
+          <div v-for="entry in imagesWithDateLabels" :key="entry.img.id" class="flex flex-col">
+            <h3
+              v-if="entry.dateLabel"
+              class="text-xs font-semibold text-gray-400 mb-1 uppercase tracking-wider truncate"
+              :title="entry.dateLabel"
+            >
+              {{ entry.dateLabel }}
+            </h3>
+            <ImageCard
+              :image="entry.img"
+              :selected="store.selectedImageIds.includes(entry.img.id)"
+              @toggle-select="store.toggleImageSelection(entry.img.id)"
+              @rate="(r) => store.rateImage(entry.img.id, r)"
+            />
+          </div>
+        </div>
+
+        <!-- Infinite-scroll sentinel + status -->
+        <div ref="sentinelEl" aria-hidden="true" class="h-1"></div>
+        <div class="flex justify-center mt-6 pb-8">
+          <p v-if="store.loading" class="text-gray-500 text-sm">Loading more…</p>
+          <p v-else-if="store.page >= store.pages" class="text-gray-500 text-sm">
+            All {{ store.total }} images loaded
+          </p>
+        </div>
+      </template>
+    </main>
+
+    <!-- Right sidebar: projects, tags, bulk actions -->
+    <aside class="w-72 bg-gray-800 border-l border-gray-700 overflow-y-auto p-4 flex-shrink-0">
       <!-- Projects -->
       <div class="mb-4">
         <div class="flex items-center justify-between mb-2">
           <label class="block text-xs text-gray-400 uppercase tracking-wider">Projects</label>
-          <router-link to="/projects" class="text-xs text-purple-400 hover:text-purple-300">All</router-link>
+          <div class="flex items-center gap-2">
+            <button
+              v-if="selectedProjectSlugs.length"
+              @click="clearProjectFilters"
+              class="text-xs text-purple-400 hover:text-purple-300"
+            >
+              Clear
+            </button>
+            <router-link to="/projects" class="text-xs text-purple-400 hover:text-purple-300">Manage</router-link>
+          </div>
         </div>
         <div v-if="projectsStore.loading" class="text-xs text-gray-500 italic">Loading…</div>
         <div v-else-if="!projectsStore.projects.length" class="text-xs text-gray-500 italic">No projects yet</div>
-        <div v-else class="space-y-0.5">
-          <router-link
-            v-for="p in projectsStore.projects"
-            :key="p.slug"
-            :to="`/projects/${p.slug}`"
-            class="flex items-center justify-between px-1 py-0.5 rounded text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors"
+        <div v-else class="text-sm select-none">
+          <div
+            v-for="entry in projectTreeFlat"
+            :key="entry.key"
+            :class="[
+              'flex items-center gap-1 rounded px-1',
+              entry.kind !== 'role' && isTagSelected(entry.tagName)
+                ? 'bg-purple-700 text-white'
+                : entry.kind === 'role'
+                  ? 'text-gray-500'
+                  : 'text-gray-300 hover:bg-gray-700 hover:text-white',
+            ]"
+            :style="{ paddingLeft: (entry.depth * 12 + 4) + 'px' }"
           >
-            <span class="truncate">{{ p.name }}</span>
-            <span class="text-xs text-gray-500 ml-1 flex-shrink-0">{{ p.image_count }}</span>
-          </router-link>
+            <button
+              v-if="entry.hasChildren"
+              @click="toggleProjectExpand(entry.key)"
+              class="text-xs w-3 flex-shrink-0 text-gray-500 hover:text-gray-300 py-0.5"
+              :aria-label="expandedProjects.has(entry.key) ? 'Collapse' : 'Expand'"
+            >{{ entry.expanded ? '▾' : '▸' }}</button>
+            <span v-else class="text-xs w-3 flex-shrink-0 text-gray-700">·</span>
+            <!-- Role groups are headers, not tag filters (no real tag exists for "project:slug:role"). -->
+            <div
+              v-if="entry.kind === 'role'"
+              class="flex items-center gap-1 flex-1 py-0.5 text-xs uppercase tracking-wider truncate"
+            >
+              <span class="truncate">{{ entry.label }}</span>
+              <span class="ml-auto text-gray-600">{{ entry.count }}</span>
+            </div>
+            <button
+              v-else
+              @click="toggleTagFilter(entry.tagName)"
+              class="flex items-center gap-1 flex-1 text-left py-0.5 truncate"
+              :class="entry.kind === 'project' ? 'font-medium' : ''"
+            >
+              <span class="truncate">{{ entry.label }}</span>
+              <span :class="['ml-auto text-xs flex-shrink-0', isTagSelected(entry.tagName) ? 'text-purple-200' : 'text-gray-500']">{{ entry.image_count }}</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -263,57 +369,6 @@
         </button>
       </div>
     </aside>
-
-    <!-- Bulk assign-to-project modal -->
-    <BulkProjectModal
-      v-if="showBulkProjectModal"
-      :image-ids="store.selectedImageIds"
-      @close="showBulkProjectModal = false"
-      @assigned="onBulkAssigned"
-    />
-
-    <!-- Gallery -->
-    <main class="flex-1 overflow-y-auto p-4" ref="galleryEl">
-      <!-- Loading / empty states -->
-      <div v-if="store.loading && !store.images.length" class="flex items-center justify-center h-64">
-        <div class="text-gray-400 text-lg">Loading…</div>
-      </div>
-      <div v-else-if="!store.images.length" class="flex flex-col items-center justify-center h-64 gap-4">
-        <div class="text-6xl">🖼️</div>
-        <p class="text-gray-400 text-lg">No images found.</p>
-        <p class="text-gray-500 text-sm">Use "Scan Directory" to add images.</p>
-      </div>
-
-      <!-- Continuous grid with inline date headers -->
-      <template v-else>
-        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 items-end">
-          <div v-for="entry in imagesWithDateLabels" :key="entry.img.id" class="flex flex-col">
-            <h3
-              v-if="entry.dateLabel"
-              class="text-xs font-semibold text-gray-400 mb-1 uppercase tracking-wider truncate"
-              :title="entry.dateLabel"
-            >
-              {{ entry.dateLabel }}
-            </h3>
-            <ImageCard
-              :image="entry.img"
-              :selected="store.selectedImageIds.includes(entry.img.id)"
-              @toggle-select="store.toggleImageSelection(entry.img.id)"
-              @rate="(r) => store.rateImage(entry.img.id, r)"
-            />
-          </div>
-        </div>
-
-        <!-- Infinite-scroll sentinel + status -->
-        <div ref="sentinelEl" aria-hidden="true" class="h-1"></div>
-        <div class="flex justify-center mt-6 pb-8">
-          <p v-if="store.loading" class="text-gray-500 text-sm">Loading more…</p>
-          <p v-else-if="store.page >= store.pages" class="text-gray-500 text-sm">
-            All {{ store.total }} images loaded
-          </p>
-        </div>
-      </template>
-    </main>
   </div>
 </template>
 
@@ -342,6 +397,11 @@ const currentMonth = String(today.getMonth() + 1).padStart(2, '0')
 const expandedYears = ref(new Set([currentYear]))
 const expandedMonths = ref(new Set([`${currentYear}-${currentMonth}`]))
 const selectedDay = ref(null)
+const selectedMonth = ref(null)  // "YYYY-MM" when a whole month is selected
+
+// Project tree expand state — a project's row collapses by default unless
+// it (or one of its descendants) is selected as a filter.
+const expandedProjects = ref(new Set())
 
 function matchesQuery(tag, q) {
   if (!q) return true
@@ -459,16 +519,31 @@ async function onBulkAssigned() {
   await projectsStore.fetchProjects()
 }
 
-// Build year → month → days tree from flat date list
+// Build sorted year → month → days tree from flat date list. Use arrays
+// (not plain objects) so iteration order is explicit — JS object key order
+// puts unpadded numeric strings ("10","11","12") before zero-padded ones
+// ("01"…"09"), which scrambled the month/day list.
 const dateTree = computed(() => {
-  const tree = {}
+  const byYear = new Map()
   for (const { date, count } of store.availableDates) {
     const [year, month, day] = date.split('-')
-    if (!tree[year]) tree[year] = {}
-    if (!tree[year][month]) tree[year][month] = []
-    tree[year][month].push({ day, date, count })
+    if (!byYear.has(year)) byYear.set(year, new Map())
+    const byMonth = byYear.get(year)
+    if (!byMonth.has(month)) byMonth.set(month, [])
+    byMonth.get(month).push({ day, date, count })
   }
-  return tree
+  const years = []
+  for (const [year, byMonth] of byYear) {
+    const months = []
+    for (const [month, days] of byMonth) {
+      days.sort((a, b) => b.day.localeCompare(a.day))
+      months.push({ month, days })
+    }
+    months.sort((a, b) => b.month.localeCompare(a.month))
+    years.push({ year, months })
+  }
+  years.sort((a, b) => b.year.localeCompare(a.year))
+  return years
 })
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -492,13 +567,26 @@ function toggleMonth(yearMonth) {
 
 function selectDay(date) {
   selectedDay.value = date
+  selectedMonth.value = null
   store.dateFrom = date
   store.dateTo = date
   store.fetchImages(true)
 }
 
+function selectMonth(year, month) {
+  // Date(year, month, 0) → last day of (month-1) in 0-indexed terms,
+  // which equals the last day of `month` in our 1-indexed input.
+  const lastDay = new Date(parseInt(year), parseInt(month), 0).getDate()
+  selectedMonth.value = `${year}-${month}`
+  selectedDay.value = null
+  store.dateFrom = `${year}-${month}-01`
+  store.dateTo = `${year}-${month}-${String(lastDay).padStart(2, '0')}`
+  store.fetchImages(true)
+}
+
 function clearDateFilter() {
   selectedDay.value = null
+  selectedMonth.value = null
   store.dateFrom = ''
   store.dateTo = ''
   store.fetchImages(true)
@@ -510,6 +598,169 @@ function toggleTagFilter(tagName) {
   else store.selectedTags.splice(idx, 1)
   store.fetchImages(true)
 }
+
+// Project filtering rides on the same selectedTags pipeline — `project:<slug>`
+// already includes descendants thanks to the recursive tag-descendant CTE in
+// the backend, so a single tag filter covers the whole project subtree.
+function projectTagName(slug) {
+  return `project:${slug}`
+}
+
+function isTagSelected(tagName) {
+  return store.selectedTags.includes(tagName)
+}
+
+function clearProjectFilters() {
+  store.selectedTags = store.selectedTags.filter((t) => !t.startsWith('project:'))
+  store.fetchImages(true)
+}
+
+function toggleProjectExpand(key) {
+  const next = new Set(expandedProjects.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  expandedProjects.value = next
+}
+
+const selectedProjectSlugs = computed(() =>
+  store.selectedTags
+    .filter((t) => t.startsWith('project:'))
+    .map((t) => t.split(':')[1])
+    .filter(Boolean),
+)
+
+// Per-project role buckets derived from `project:<slug>:<role>:<value>` tags.
+// Role tags themselves don't exist as separate rows in the DB — only the
+// leaf role:value tags do — so role nodes are virtual headers built here.
+const projectRolesBySlug = computed(() => {
+  const out = new Map()
+  for (const tag of store.allTags) {
+    if (!tag.name.startsWith('project:')) continue
+    const parts = tag.name.split(':')
+    if (parts.length < 4) continue
+    const slug = parts[1]
+    const role = parts[2]
+    const value = parts.slice(3).join(':')
+    if (!out.has(slug)) out.set(slug, new Map())
+    const roles = out.get(slug)
+    if (!roles.has(role)) roles.set(role, [])
+    roles.get(role).push({ tagName: tag.name, label: value, image_count: tag.image_count || 0 })
+  }
+  for (const roles of out.values()) {
+    for (const arr of roles.values()) arr.sort((a, b) => b.image_count - a.image_count)
+  }
+  return out
+})
+
+// Build project tree from parent_slug. A project whose parent_slug isn't
+// present in the project list is treated as a root so nothing gets dropped.
+const projectTree = computed(() => {
+  const projects = projectsStore.projects
+  const bySlug = new Map(projects.map((p) => [p.slug, { ...p, children: [] }]))
+  const roots = []
+  for (const node of bySlug.values()) {
+    if (node.parent_slug && bySlug.has(node.parent_slug)) {
+      bySlug.get(node.parent_slug).children.push(node)
+    } else {
+      roots.push(node)
+    }
+  }
+  const sortFn = (a, b) => a.name.localeCompare(b.name)
+  const sortAll = (nodes) => {
+    nodes.sort(sortFn)
+    for (const n of nodes) sortAll(n.children)
+  }
+  sortAll(roots)
+  return roots
+})
+
+// Auto-expand ancestors of any selected project so the active filter stays
+// visible even after the projects list refreshes.
+const projectAncestors = computed(() => {
+  const bySlug = new Map(projectsStore.projects.map((p) => [p.slug, p]))
+  const ancestors = (slug) => {
+    const out = []
+    let cursor = bySlug.get(slug)
+    while (cursor && cursor.parent_slug) {
+      out.push(cursor.parent_slug)
+      cursor = bySlug.get(cursor.parent_slug)
+    }
+    return out
+  }
+  const set = new Set()
+  for (const slug of selectedProjectSlugs.value) {
+    for (const a of ancestors(slug)) set.add(a)
+  }
+  return set
+})
+
+// Flatten the project tree into a single array of typed rows so the template
+// can render projects, role headers, and role values uniformly.
+//   kind === 'project' → top/sub-project, click filters by `project:<slug>`
+//   kind === 'role'    → virtual header (no real tag), expand only
+//   kind === 'value'   → leaf, click filters by full `project:<slug>:<role>:<value>` tag
+const projectTreeFlat = computed(() => {
+  const out = []
+  const expanded = expandedProjects.value
+  const forced = projectAncestors.value
+  const rolesBySlug = projectRolesBySlug.value
+
+  const walk = (nodes, depth) => {
+    for (const n of nodes) {
+      const projectKey = `p:${n.slug}`
+      const roles = rolesBySlug.get(n.slug)
+      const hasSubProjects = n.children.length > 0
+      const hasRoles = roles && roles.size > 0
+      const hasChildren = hasSubProjects || hasRoles
+      const isExpanded = expanded.has(projectKey) || forced.has(n.slug)
+
+      out.push({
+        kind: 'project',
+        key: projectKey,
+        tagName: projectTagName(n.slug),
+        label: n.name,
+        image_count: n.image_count,
+        depth,
+        hasChildren,
+        expanded: isExpanded,
+      })
+
+      if (!isExpanded) continue
+
+      if (hasSubProjects) walk(n.children, depth + 1)
+
+      if (hasRoles) {
+        for (const [roleName, values] of roles) {
+          const roleKey = `r:${n.slug}:${roleName}`
+          const roleExpanded = expanded.has(roleKey)
+          out.push({
+            kind: 'role',
+            key: roleKey,
+            label: roleName,
+            count: values.length,
+            depth: depth + 1,
+            hasChildren: true,
+            expanded: roleExpanded,
+          })
+          if (!roleExpanded) continue
+          for (const v of values) {
+            out.push({
+              kind: 'value',
+              key: `v:${v.tagName}`,
+              tagName: v.tagName,
+              label: v.label,
+              image_count: v.image_count,
+              depth: depth + 2,
+              hasChildren: false,
+            })
+          }
+        }
+      }
+    }
+  }
+  walk(projectTree.value, 0)
+  return out
+})
 
 async function doBulkTag() {
   const tags = bulkTagInput.value.split(',').map((t) => t.trim()).filter(Boolean)

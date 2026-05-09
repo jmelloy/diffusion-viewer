@@ -1,7 +1,7 @@
 import os
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -62,7 +62,27 @@ def parse_sidecar(sidecar_path: Path) -> Dict[str, Any]:
                 if isinstance(val, (int, float)):
                     result["date_taken"] = datetime.utcfromtimestamp(val)
                 else:
+                    iso_val = str(val).strip()
+                    if iso_val.endswith("Z"):
+                        iso_val = iso_val[:-1] + "+00:00"
+                    try:
+                        parsed = datetime.fromisoformat(iso_val)
+                        if parsed.tzinfo is not None:
+                            parsed = parsed.astimezone(timezone.utc).replace(
+                                tzinfo=None
+                            )
+                        result["date_taken"] = parsed
+                    except ValueError:
+                        pass
+
+                if "date_taken" in result:
+                    break
+
+                # Fallback for older non-ISO date formats.
+                if not isinstance(val, (int, float)):
                     for fmt in (
+                        "%Y-%m-%dT%H:%M:%S.%f",
+                        "%Y-%m-%dT%H:%M:%S.%fZ",
                         "%Y-%m-%dT%H:%M:%S",
                         "%Y-%m-%dT%H:%M:%SZ",
                         "%Y-%m-%d %H:%M:%S",
@@ -258,15 +278,12 @@ def scan_directory(db: Session, directory: str) -> Dict[str, int]:
                 f"updated={stats['updated']} sidecars={stats['with_sidecar']}"
             )
 
-    # Run auto-tagging on processed images
+    # Auto-tagging is intentionally disabled to avoid noisy tag suggestions
+    # during routine scans.
     if image_ids_processed:
-        logger.info(f"Auto-tagging {len(image_ids_processed)} images...")
-        try:
-            from utils.tfidf import auto_tag_images
-
-            auto_tag_images(db, image_ids=image_ids_processed)
-        except Exception as e:
-            logger.warning(f"Auto-tagging failed: {e}")
+        logger.info(
+            f"Auto-tagging skipped for {len(image_ids_processed)} images (disabled)."
+        )
 
     logger.info(f"Scan complete: {stats}")
     return stats

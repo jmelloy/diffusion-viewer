@@ -39,7 +39,7 @@
       <!-- Role/value pairs -->
       <div class="mb-5">
         <label class="block text-xs text-gray-400 mb-2">Roles</label>
-        <RolesEditor v-model="rolesPayload" :project-slug="projectInput.trim().toLowerCase()" />
+        <RolesEditor v-model="rolesPayload" :project-slug="slugify(projectInput)" />
       </div>
 
       <div class="flex gap-2 justify-end">
@@ -95,13 +95,14 @@ function moveSuggestion(dir) {
 }
 
 function selectSuggestion(s) {
-  if (s) {
-    projectInput.value = s.slug
-  } else if (activeSuggestion.value >= 0) {
-    projectInput.value = filteredSuggestions.value[activeSuggestion.value]?.slug || projectInput.value
-  }
+  const pick = s || filteredSuggestions.value[activeSuggestion.value]
+  if (pick) projectInput.value = pick.name
   showSuggestions.value = false
   activeSuggestion.value = -1
+}
+
+function slugify(s) {
+  return (s || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
 }
 
 async function assign() {

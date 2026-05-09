@@ -29,7 +29,7 @@ def _parse_role(tag_name: str, slug: str) -> tuple[str, str] | None:
     prefix = f"project:{slug}:"
     if not tag_name.startswith(prefix):
         return None
-    rest = tag_name[len(prefix):]
+    rest = tag_name[len(prefix) :]
     role, _, value = rest.partition(":")
     if not role or not value:
         return None
@@ -50,7 +50,7 @@ def _descendant_tag_ids(db: Session, root_id: int) -> list[int]:
         .cte(name="proj_descendants", recursive=True)
     )
     child = aliased(models.Tag)
-    descendants = anchor.union_all(
+    descendants = anchor.union(
         select(child.id).where(child.parent_tag_id == anchor.c.id)
     )
     return [r[0] for r in db.execute(select(descendants.c.id)).all()]
@@ -70,9 +70,7 @@ def _parent_project_slug(db: Session, tag: models.Tag) -> str | None:
 
 @router.get("/api/projects", response_model=List[schemas.ProjectInfo])
 def list_projects(db: Session = Depends(get_db)):
-    project_tags = (
-        db.query(models.Tag).filter(models.Tag.name.like("project:%")).all()
-    )
+    project_tags = db.query(models.Tag).filter(models.Tag.name.like("project:%")).all()
     project_tags = [t for t in project_tags if _project_slug(t.name)]
 
     out = []
@@ -129,9 +127,9 @@ def get_project(slug: str, db: Session = Depends(get_db)):
             roles[""][""].append(img)
 
     children = []
-    for child_tag in db.query(models.Tag).filter(
-        models.Tag.parent_tag_id == project_tag.id
-    ).all():
+    for child_tag in (
+        db.query(models.Tag).filter(models.Tag.parent_tag_id == project_tag.id).all()
+    ):
         child_slug = _project_slug(child_tag.name)
         if not child_slug:
             continue
@@ -171,7 +169,9 @@ def _ensure_tag(db: Session, name: str, parent: models.Tag | None = None) -> mod
 
 
 @router.post("/api/images/{image_id}/project", response_model=schemas.Image)
-def assign_project(image_id: int, body: schemas.ProjectAssignRequest, db: Session = Depends(get_db)):
+def assign_project(
+    image_id: int, body: schemas.ProjectAssignRequest, db: Session = Depends(get_db)
+):
     img = db.query(models.Image).filter(models.Image.id == image_id).first()
     if not img:
         raise HTTPException(status_code=404, detail="Image not found")
@@ -202,7 +202,9 @@ def assign_project(image_id: int, body: schemas.ProjectAssignRequest, db: Sessio
 
 
 @router.delete("/api/images/{image_id}/project", response_model=schemas.Image)
-def remove_project(image_id: int, body: schemas.ProjectRemoveRequest, db: Session = Depends(get_db)):
+def remove_project(
+    image_id: int, body: schemas.ProjectRemoveRequest, db: Session = Depends(get_db)
+):
     img = db.query(models.Image).filter(models.Image.id == image_id).first()
     if not img:
         raise HTTPException(status_code=404, detail="Image not found")
@@ -214,16 +216,17 @@ def remove_project(image_id: int, body: schemas.ProjectRemoveRequest, db: Sessio
             role = role.strip().lower()
             for value in values:
                 value = value.strip().lower()
-                tag = db.query(models.Tag).filter(
-                    models.Tag.name == f"project:{slug}:{role}:{value}"
-                ).first()
+                tag = (
+                    db.query(models.Tag)
+                    .filter(models.Tag.name == f"project:{slug}:{role}:{value}")
+                    .first()
+                )
                 if tag and tag in img.tags:
                     img.tags.remove(tag)
     else:
         prefix = f"project:{slug}"
         to_remove = [
-            t for t in img.tags
-            if t.name == prefix or t.name.startswith(f"{prefix}:")
+            t for t in img.tags if t.name == prefix or t.name.startswith(f"{prefix}:")
         ]
         for tag in to_remove:
             img.tags.remove(tag)

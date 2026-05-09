@@ -74,7 +74,8 @@
           v-for="tag in image.tags.slice(0, 3)"
           :key="tag.id"
           class="bg-gray-700 text-gray-300 text-xs px-1 py-0.5 rounded"
-        >{{ tag.name }}</span>
+          :title="tag.name"
+        >{{ shortTagLabel(tag.name) }}</span>
         <span v-if="image.tags.length > 3" class="text-xs text-gray-500">+{{ image.tags.length - 3 }}</span>
       </div>
     </div>
@@ -98,5 +99,14 @@ function handleClick() {
 
 function onImgError(e) {
   e.target.src = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Crect width='100' height='100' fill='%23374151'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%236b7280' font-size='12'%3E No Image%3C/text%3E%3C/svg%3E`
+}
+
+// Project tags can be deeply nested (project:card-game:suit:hearts) and the
+// full string blows out the chip width. Show only the leaf segment; full name
+// stays in the title tooltip for disambiguation.
+function shortTagLabel(name) {
+  if (!name.startsWith('project:')) return name
+  const parts = name.split(':')
+  return parts[parts.length - 1]
 }
 </script>
