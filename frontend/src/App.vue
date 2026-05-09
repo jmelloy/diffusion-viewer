@@ -20,6 +20,54 @@
       >
         📂 Scan Directory
       </button>
+
+      <!-- Auth area -->
+      <div v-if="auth.isAuthenticated" class="relative" ref="userMenuRef">
+        <button
+          @click="userMenuOpen = !userMenuOpen"
+          class="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-gray-700 transition-colors"
+          :title="auth.user?.username"
+        >
+          <span
+            class="w-8 h-8 rounded-full bg-purple-600 flex items-center justify-center text-sm font-bold text-white uppercase"
+          >
+            {{ initial }}
+          </span>
+          <span class="text-sm text-gray-200 hidden sm:inline">{{ auth.user?.username }}</span>
+        </button>
+
+        <div
+          v-if="userMenuOpen"
+          class="absolute right-0 mt-2 w-48 bg-gray-800 border border-gray-700 rounded-lg shadow-xl py-1 z-50"
+        >
+          <div class="px-4 py-2 border-b border-gray-700">
+            <div class="text-sm font-medium text-white truncate">{{ auth.user?.username }}</div>
+            <div v-if="auth.user?.email" class="text-xs text-gray-400 truncate">
+              {{ auth.user.email }}
+            </div>
+          </div>
+          <button
+            @click="logout"
+            class="block w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700"
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+      <div v-else class="flex items-center gap-2">
+        <router-link
+          to="/login"
+          class="text-sm text-gray-300 hover:text-white px-3 py-2 rounded-lg hover:bg-gray-700 transition-colors whitespace-nowrap"
+        >
+          Sign in
+        </router-link>
+        <router-link
+          to="/register"
+          class="text-sm bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded-lg transition-colors whitespace-nowrap"
+        >
+          Sign up
+        </router-link>
+      </div>
     </nav>
 
     <!-- Scan Modal -->
@@ -63,16 +111,44 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import SearchBar from './components/SearchBar.vue'
 import { useImagesStore } from './stores/images.js'
+import { useAuthStore } from './stores/auth.js'
 
 const store = useImagesStore()
+const auth = useAuthStore()
+const router = useRouter()
+
 const showScanModal = ref(false)
 const scanDirectory = ref('')
 const scanning = ref(false)
 const scanResult = ref('')
 const scanError = ref(false)
+
+const userMenuOpen = ref(false)
+const userMenuRef = ref(null)
+
+const initial = computed(() => (auth.user?.username || '?').charAt(0))
+
+function handleClickOutside(e) {
+  if (userMenuOpen.value && userMenuRef.value && !userMenuRef.value.contains(e.target)) {
+    userMenuOpen.value = false
+  }
+}
+
+onMounted(() => {
+  auth.init()
+  document.addEventListener('click', handleClickOutside)
+})
+onBeforeUnmount(() => document.removeEventListener('click', handleClickOutside))
+
+function logout() {
+  auth.logout()
+  userMenuOpen.value = false
+  router.push('/login')
+}
 
 async function doScan() {
   if (!scanDirectory.value.trim()) return

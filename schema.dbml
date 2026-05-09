@@ -45,3 +45,18 @@ Table image_tags {
     (image_id, tag_id) [pk]
   }
 }
+
+Table users {
+  id integer [pk, increment]
+  username varchar [unique, not null]
+  email varchar [unique]
+  hashed_password varchar [not null]
+  is_active boolean [default: true]
+  created_at datetime
+
+  indexes {
+    id
+    username [unique]
+    email [unique]
+  }
+}

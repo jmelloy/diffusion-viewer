@@ -5,6 +5,17 @@ from sqlalchemy import Column, DateTime, ForeignKey, Integer, Text
 from sqlmodel import Field, Relationship, SQLModel
 
 
+class User(SQLModel, table=True):
+    __tablename__ = "users"
+
+    id: Optional[int] = Field(default=None, primary_key=True, index=True)
+    username: str = Field(unique=True, nullable=False, index=True)
+    email: Optional[str] = Field(default=None, unique=True, index=True)
+    hashed_password: str = Field(nullable=False)
+    is_active: bool = Field(default=True)
+    created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
+
+
 class ImageTag(SQLModel, table=True):
     __tablename__ = "image_tags"
 
