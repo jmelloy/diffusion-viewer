@@ -5,11 +5,12 @@ import os
 
 from alembic import command
 from alembic.config import Config
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from routers import auth, images, tags, projects
+from utils.security import get_current_user
 from utils.watcher import start_watcher, stop_watcher
 
 logger = logging.getLogger(__name__)
@@ -57,10 +58,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+protected = [Depends(get_current_user)]
+
 app.include_router(auth.router)
-app.include_router(images.router)
-app.include_router(tags.router)
-app.include_router(projects.router)
+app.include_router(images.files_router)
+app.include_router(images.router, dependencies=protected)
+app.include_router(tags.router, dependencies=protected)
+app.include_router(projects.router, dependencies=protected)
 
 # Serve thumbnails statically
 thumbnails_dir.mkdir(exist_ok=True)

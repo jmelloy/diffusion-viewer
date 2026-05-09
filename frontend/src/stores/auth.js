@@ -115,15 +115,26 @@ export const useAuthStore = defineStore('auth', {
 })
 
 // Global response interceptor: if a token expires (401), drop the auth state
-// so the UI reverts to logged-out.
+// and bounce to /login (unless we're already on a guest page).
 axios.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      const token = readToken()
-      if (token) {
-        writeToken('')
-        applyAuthHeader('')
+      const url = error.config?.url || ''
+      // Don't loop on auth endpoints — let the caller surface the error.
+      if (!url.startsWith('/api/auth/')) {
+        const token = readToken()
+        if (token) {
+          writeToken('')
+          applyAuthHeader('')
+        }
+        if (typeof window !== 'undefined') {
+          const path = window.location.pathname
+          if (path !== '/login' && path !== '/register') {
+            const next = path + window.location.search
+            window.location.assign(`/login?next=${encodeURIComponent(next)}`)
+          }
+        }
       }
     }
     return Promise.reject(error)

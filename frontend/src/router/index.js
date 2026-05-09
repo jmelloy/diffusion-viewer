@@ -9,11 +9,11 @@ import RegisterView from '../views/RegisterView.vue'
 import { useAuthStore } from '../stores/auth.js'
 
 const routes = [
-  { path: '/', component: GalleryView },
-  { path: '/image/:id', component: DetailView },
-  { path: '/projects', component: ProjectsListView },
-  { path: '/projects/:slug', component: ProjectView },
-  { path: '/tags', component: TagManagerView },
+  { path: '/', component: GalleryView, meta: { requiresAuth: true } },
+  { path: '/image/:id', component: DetailView, meta: { requiresAuth: true } },
+  { path: '/projects', component: ProjectsListView, meta: { requiresAuth: true } },
+  { path: '/projects/:slug', component: ProjectView, meta: { requiresAuth: true } },
+  { path: '/tags', component: TagManagerView, meta: { requiresAuth: true } },
   { path: '/login', component: LoginView, meta: { guestOnly: true } },
   { path: '/register', component: RegisterView, meta: { guestOnly: true } },
 ]
@@ -27,6 +27,9 @@ router.beforeEach(async (to) => {
   const auth = useAuthStore()
   await auth.init()
 
+  if (to.meta.requiresAuth && !auth.isAuthenticated) {
+    return { path: '/login', query: { next: to.fullPath } }
+  }
   if (to.meta.guestOnly && auth.isAuthenticated) {
     return { path: '/' }
   }

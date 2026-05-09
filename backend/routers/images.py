@@ -16,6 +16,10 @@ from utils.scanner import scan_directory, create_thumbnail, THUMBNAIL_DIR
 
 router = APIRouter(prefix="/api/images", tags=["images"])
 
+# Sub-router for endpoints that must remain unauthenticated so browser
+# <img> tags (which can't carry an Authorization header) keep working.
+files_router = APIRouter(prefix="/api/images", tags=["images"])
+
 
 def apply_filters(
     query, db: Session, q, tags, min_rating, show_hidden, date_from, date_to
@@ -157,7 +161,7 @@ def get_image(image_id: int, db: Session = Depends(get_db)):
     return img
 
 
-@router.get("/{image_id}/file")
+@files_router.get("/{image_id}/file")
 def serve_image_file(image_id: int, db: Session = Depends(get_db)):
     img = db.query(models.Image).filter(models.Image.id == image_id).first()
     if not img:
@@ -167,7 +171,7 @@ def serve_image_file(image_id: int, db: Session = Depends(get_db)):
     return FileResponse(img.filepath)
 
 
-@router.get("/{image_id}/thumbnail")
+@files_router.get("/{image_id}/thumbnail")
 def serve_thumbnail(image_id: int, db: Session = Depends(get_db)):
     img = db.query(models.Image).filter(models.Image.id == image_id).first()
     if not img:
