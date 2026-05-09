@@ -12,6 +12,11 @@ from PIL import Image as PILImage
 import models
 import schemas
 from database import get_db
+from utils.ownership import (
+    require_image_access,
+    user_can_mutate,
+    visible_image_filter,
+)
 from utils.scanner import scan_directory, create_thumbnail, THUMBNAIL_DIR
 from utils.security import get_current_user
 
@@ -23,8 +28,18 @@ files_router = APIRouter(prefix="/api/images", tags=["images"])
 
 
 def apply_filters(
-    query, db: Session, q, tags, min_rating, show_hidden, date_from, date_to
+    query,
+    db: Session,
+    q,
+    tags,
+    min_rating,
+    show_hidden,
+    date_from,
+    date_to,
+    current_user: models.User,
 ):
+    query = query.filter(visible_image_filter(current_user))
+
     if not show_hidden:
         query = query.filter(models.Image.hidden == False)
 
@@ -81,6 +96,7 @@ def list_images(
     sort_by: str = Query("date_taken"),
     sort_dir: str = Query("desc"),
     db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     from datetime import datetime, timedelta
 
@@ -103,7 +119,15 @@ def list_images(
 
     query = db.query(models.Image)
     query = apply_filters(
-        query, db, q, tags or [], min_rating, show_hidden, date_from_dt, date_to_dt
+        query,
+        db,
+        q,
+        tags or [],
+        min_rating,
+        show_hidden,
+        date_from_dt,
+        date_to_dt,
+        current_user,
     )
 
     total = query.count()
@@ -139,12 +163,16 @@ def list_images(
 
 
 @router.get("/dates", response_model=list)
-def get_dates(db: Session = Depends(get_db)):
+def get_dates(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     results = (
         db.query(
             func.date(models.Image.date_taken).label("date"),
             func.count(models.Image.id).label("count"),
         )
+        .filter(visible_image_filter(current_user))
         .filter(models.Image.date_taken != None)
         .filter(models.Image.hidden == False)
         .group_by(func.date(models.Image.date_taken))
@@ -155,11 +183,13 @@ def get_dates(db: Session = Depends(get_db)):
 
 
 @router.get("/{image_id}", response_model=schemas.Image)
-def get_image(image_id: int, db: Session = Depends(get_db)):
+def get_image(
+    image_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     img = db.query(models.Image).filter(models.Image.id == image_id).first()
-    if not img:
-        raise HTTPException(status_code=404, detail="Image not found")
-    return img
+    return require_image_access(img, current_user)
 
 
 @files_router.get("/{image_id}/file")
@@ -201,11 +231,13 @@ def serve_thumbnail(image_id: int, db: Session = Depends(get_db)):
 
 @router.put("/{image_id}/rating", response_model=schemas.Image)
 def update_rating(
-    image_id: int, rating_update: schemas.RatingUpdate, db: Session = Depends(get_db)
+    image_id: int,
+    rating_update: schemas.RatingUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     img = db.query(models.Image).filter(models.Image.id == image_id).first()
-    if not img:
-        raise HTTPException(status_code=404, detail="Image not found")
+    img = require_image_access(img, current_user)
     img.rating = rating_update.rating
     if rating_update.rating == -1:
         img.hidden = True
@@ -227,14 +259,15 @@ def add_tags(
     current_user: models.User = Depends(get_current_user),
 ):
     img = db.query(models.Image).filter(models.Image.id == image_id).first()
-    if not img:
-        raise HTTPException(status_code=404, detail="Image not found")
+    img = require_image_access(img, current_user)
 
     for tag_name in body.tag_names:
         tag_name = tag_name.strip().lower()
         if not tag_name:
             continue
         tag = db.query(models.Tag).filter(models.Tag.name == tag_name).first()
+        if tag and not user_can_mutate(tag.user_id, current_user):
+            raise HTTPException(status_code=403, detail=f"Tag '{tag_name}' is owned by another user")
         if not tag:
             tag = models.Tag(name=tag_name, user_id=current_user.id)
             db.add(tag)
@@ -248,10 +281,14 @@ def add_tags(
 
 
 @router.delete("/{image_id}/tags/{tag_name}", response_model=schemas.Image)
-def remove_tag(image_id: int, tag_name: str, db: Session = Depends(get_db)):
+def remove_tag(
+    image_id: int,
+    tag_name: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     img = db.query(models.Image).filter(models.Image.id == image_id).first()
-    if not img:
-        raise HTTPException(status_code=404, detail="Image not found")
+    img = require_image_access(img, current_user)
     tag = db.query(models.Tag).filter(models.Tag.name == tag_name).first()
     if tag and tag in img.tags:
         img.tags.remove(tag)
@@ -266,13 +303,20 @@ def bulk_tag(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    images = db.query(models.Image).filter(models.Image.id.in_(body.image_ids)).all()
+    images = (
+        db.query(models.Image)
+        .filter(models.Image.id.in_(body.image_ids))
+        .filter(visible_image_filter(current_user))
+        .all()
+    )
     tags = []
     for tag_name in body.tag_names:
         tag_name = tag_name.strip().lower()
         if not tag_name:
             continue
         tag = db.query(models.Tag).filter(models.Tag.name == tag_name).first()
+        if tag and not user_can_mutate(tag.user_id, current_user):
+            raise HTTPException(status_code=403, detail=f"Tag '{tag_name}' is owned by another user")
         if not tag:
             tag = models.Tag(name=tag_name, user_id=current_user.id)
             db.add(tag)
@@ -289,8 +333,17 @@ def bulk_tag(
 
 
 @router.post("/bulk-remove-tag", response_model=dict)
-def bulk_remove_tag(body: schemas.BulkRemoveTagRequest, db: Session = Depends(get_db)):
-    images = db.query(models.Image).filter(models.Image.id.in_(body.image_ids)).all()
+def bulk_remove_tag(
+    body: schemas.BulkRemoveTagRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    images = (
+        db.query(models.Image)
+        .filter(models.Image.id.in_(body.image_ids))
+        .filter(visible_image_filter(current_user))
+        .all()
+    )
     tag = db.query(models.Tag).filter(models.Tag.name == body.tag_name).first()
     if not tag:
         return {"untagged": 0}
@@ -304,10 +357,19 @@ def bulk_remove_tag(body: schemas.BulkRemoveTagRequest, db: Session = Depends(ge
 
 
 @router.post("/bulk-rating", response_model=dict)
-def bulk_rating(body: schemas.BulkRatingRequest, db: Session = Depends(get_db)):
+def bulk_rating(
+    body: schemas.BulkRatingRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     from datetime import datetime
 
-    images = db.query(models.Image).filter(models.Image.id.in_(body.image_ids)).all()
+    images = (
+        db.query(models.Image)
+        .filter(models.Image.id.in_(body.image_ids))
+        .filter(visible_image_filter(current_user))
+        .all()
+    )
     for img in images:
         img.rating = body.rating
         img.hidden = body.rating == -1
@@ -339,10 +401,13 @@ def scan(
 
 
 @router.delete("/{image_id}", response_model=schemas.Image)
-def delete_image(image_id: int, db: Session = Depends(get_db)):
+def delete_image(
+    image_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     img = db.query(models.Image).filter(models.Image.id == image_id).first()
-    if not img:
-        raise HTTPException(status_code=404, detail="Image not found")
+    img = require_image_access(img, current_user)
     img.hidden = True
     from datetime import datetime
 

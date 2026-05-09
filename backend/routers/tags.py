@@ -6,6 +6,14 @@ import models
 import schemas
 from database import get_db
 from utils.hierarchy import recompute_parents
+from utils.ownership import (
+    require_image_access,
+    require_tag_access,
+    user_can_mutate,
+    visible_image_filter,
+    visible_tag_filter,
+)
+from utils.security import get_current_user
 
 router = APIRouter(prefix="/api/tags", tags=["tags"])
 
@@ -21,11 +29,17 @@ def _build_path(tag: models.Tag) -> str:
     return " / ".join(reversed(parts))
 
 
-def _serialize(tag: models.Tag) -> schemas.Tag:
+def _serialize(tag: models.Tag, db: Session, user: models.User) -> schemas.Tag:
+    image_count = (
+        db.query(models.Image)
+        .filter(models.Image.tags.any(models.Tag.id == tag.id))
+        .filter(visible_image_filter(user))
+        .count()
+    )
     return schemas.Tag(
         id=tag.id,
         name=tag.name,
-        image_count=len(tag.images),
+        image_count=image_count,
         parent_tag_id=tag.parent_tag_id,
         parent_name=tag.parent.name if tag.parent else None,
         path=_build_path(tag),
@@ -86,36 +100,44 @@ def _merge_into(source: models.Tag, target: models.Tag, db: Session) -> None:
 
 
 @router.get("", response_model=List[schemas.Tag])
-def list_tags(db: Session = Depends(get_db)):
-    tags = db.query(models.Tag).all()
-    return [_serialize(t) for t in tags]
+def list_tags(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    tags = db.query(models.Tag).filter(visible_tag_filter(current_user)).all()
+    return [_serialize(t, db, current_user) for t in tags]
 
 
 @router.post("/merge", response_model=schemas.Tag)
-def merge_tags(body: schemas.TagMergeRequest, db: Session = Depends(get_db)):
+def merge_tags(
+    body: schemas.TagMergeRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     """Merge source tag into target tag.
 
     All images tagged with source are tagged with target (unless already), all
     children of source are reparented to target, and source is deleted.
     """
     source = db.query(models.Tag).filter(models.Tag.id == body.source_tag_id).first()
-    if not source:
-        raise HTTPException(status_code=404, detail="Source tag not found")
+    source = require_tag_access(source, current_user)
     target = db.query(models.Tag).filter(models.Tag.id == body.target_tag_id).first()
-    if not target:
-        raise HTTPException(status_code=404, detail="Target tag not found")
+    target = require_tag_access(target, current_user)
     _merge_into(source, target, db)
     db.commit()
     db.refresh(target)
-    return _serialize(target)
+    return _serialize(target, db, current_user)
 
 
 @router.post("/bulk-merge", response_model=dict)
-def bulk_merge_tags(body: schemas.TagBulkMergeRequest, db: Session = Depends(get_db)):
+def bulk_merge_tags(
+    body: schemas.TagBulkMergeRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     """Merge each tag in `source_tag_ids` into `target_tag_id`."""
     target = db.query(models.Tag).filter(models.Tag.id == body.target_tag_id).first()
-    if not target:
-        raise HTTPException(status_code=404, detail="Target tag not found")
+    target = require_tag_access(target, current_user)
 
     source_ids = [sid for sid in body.source_tag_ids if sid != body.target_tag_id]
     if not source_ids:
@@ -126,6 +148,9 @@ def bulk_merge_tags(body: schemas.TagBulkMergeRequest, db: Session = Depends(get
     missing = [sid for sid in source_ids if sid not in found_ids]
     if missing:
         raise HTTPException(status_code=404, detail=f"Source tag(s) not found: {missing}")
+    for src in sources:
+        if not user_can_mutate(src.user_id, current_user):
+            raise HTTPException(status_code=404, detail=f"Source tag(s) not found: [{src.id}]")
 
     # Order so that ancestors are merged after their descendants (process
     # leaves first); otherwise reparenting children mid-loop can shift the
@@ -149,10 +174,19 @@ def bulk_merge_tags(body: schemas.TagBulkMergeRequest, db: Session = Depends(get
 
 
 @router.post("/bulk-delete", response_model=dict)
-def bulk_delete_tags(body: schemas.TagBulkDeleteRequest, db: Session = Depends(get_db)):
+def bulk_delete_tags(
+    body: schemas.TagBulkDeleteRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     if not body.tag_ids:
         return {"deleted": 0}
-    tags = db.query(models.Tag).filter(models.Tag.id.in_(body.tag_ids)).all()
+    tags = (
+        db.query(models.Tag)
+        .filter(models.Tag.id.in_(body.tag_ids))
+        .filter(visible_tag_filter(current_user))
+        .all()
+    )
     for tag in tags:
         db.delete(tag)
     db.commit()
@@ -160,12 +194,21 @@ def bulk_delete_tags(body: schemas.TagBulkDeleteRequest, db: Session = Depends(g
 
 
 @router.post("/bulk-parent", response_model=dict)
-def bulk_set_parent(body: schemas.TagBulkParentRequest, db: Session = Depends(get_db)):
+def bulk_set_parent(
+    body: schemas.TagBulkParentRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     """Set the same parent on every tag in `tag_ids`. Pass parent_tag_id=null to clear."""
     if not body.tag_ids:
         return {"updated": 0}
 
-    tags = db.query(models.Tag).filter(models.Tag.id.in_(body.tag_ids)).all()
+    tags = (
+        db.query(models.Tag)
+        .filter(models.Tag.id.in_(body.tag_ids))
+        .filter(visible_tag_filter(current_user))
+        .all()
+    )
     found_ids = {t.id for t in tags}
     missing = [tid for tid in body.tag_ids if tid not in found_ids]
     if missing:
@@ -183,38 +226,51 @@ def bulk_set_parent(body: schemas.TagBulkParentRequest, db: Session = Depends(ge
 
 
 @router.post("/recompute-parents", response_model=dict)
-def trigger_recompute_parents(db: Session = Depends(get_db)):
+def trigger_recompute_parents(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     return recompute_parents(db)
 
 
 @router.get("/images/{image_id}/tags", response_model=List[schemas.Tag])
-def get_image_tags(image_id: int, db: Session = Depends(get_db)):
+def get_image_tags(
+    image_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     img = db.query(models.Image).filter(models.Image.id == image_id).first()
-    if not img:
-        raise HTTPException(status_code=404, detail="Image not found")
-    return [_serialize(t) for t in img.tags]
+    img = require_image_access(img, current_user)
+    return [_serialize(t, db, current_user) for t in img.tags]
 
 
 # --- Per-tag endpoints (path parameter routes declared last) ---------------
 
 
 @router.delete("/{tag_id}")
-def delete_tag(tag_id: int, db: Session = Depends(get_db)):
+def delete_tag(
+    tag_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     tag = db.query(models.Tag).filter(models.Tag.id == tag_id).first()
-    if not tag:
-        raise HTTPException(status_code=404, detail="Tag not found")
+    tag = require_tag_access(tag, current_user)
     db.delete(tag)
     db.commit()
     return {"deleted": tag_id}
 
 
 @router.put("/{tag_id}/parent", response_model=schemas.Tag)
-def set_tag_parent(tag_id: int, body: schemas.TagParentUpdate, db: Session = Depends(get_db)):
+def set_tag_parent(
+    tag_id: int,
+    body: schemas.TagParentUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     tag = db.query(models.Tag).filter(models.Tag.id == tag_id).first()
-    if not tag:
-        raise HTTPException(status_code=404, detail="Tag not found")
+    tag = require_tag_access(tag, current_user)
     _validate_parent_assignment(tag, body.parent_tag_id, db)
     tag.parent_tag_id = body.parent_tag_id
     db.commit()
     db.refresh(tag)
-    return _serialize(tag)
+    return _serialize(tag, db, current_user)

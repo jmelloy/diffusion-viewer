@@ -9,6 +9,11 @@ from sqlalchemy.orm import Session, aliased
 import models
 import schemas
 from database import get_db
+from utils.ownership import (
+    require_image_access,
+    visible_image_filter,
+    visible_tag_filter,
+)
 from utils.security import get_current_user
 
 router = APIRouter(tags=["projects"])
@@ -70,8 +75,16 @@ def _parent_project_slug(db: Session, tag: models.Tag) -> str | None:
 
 
 @router.get("/api/projects", response_model=List[schemas.ProjectInfo])
-def list_projects(db: Session = Depends(get_db)):
-    project_tags = db.query(models.Tag).filter(models.Tag.name.like("project:%")).all()
+def list_projects(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    project_tags = (
+        db.query(models.Tag)
+        .filter(models.Tag.name.like("project:%"))
+        .filter(visible_tag_filter(current_user))
+        .all()
+    )
     project_tags = [t for t in project_tags if _project_slug(t.name)]
 
     out = []
@@ -81,6 +94,7 @@ def list_projects(db: Session = Depends(get_db)):
         image_count = (
             db.query(models.Image)
             .filter(models.Image.tags.any(models.Tag.id.in_(descendant_ids)))
+            .filter(visible_image_filter(current_user))
             .count()
         )
         out.append(
@@ -96,9 +110,16 @@ def list_projects(db: Session = Depends(get_db)):
 
 
 @router.get("/api/projects/{slug}", response_model=schemas.ProjectDetail)
-def get_project(slug: str, db: Session = Depends(get_db)):
+def get_project(
+    slug: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     project_tag = (
-        db.query(models.Tag).filter(models.Tag.name == f"project:{slug}").first()
+        db.query(models.Tag)
+        .filter(models.Tag.name == f"project:{slug}")
+        .filter(visible_tag_filter(current_user))
+        .first()
     )
     if not project_tag:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -107,6 +128,7 @@ def get_project(slug: str, db: Session = Depends(get_db)):
     images = (
         db.query(models.Image)
         .filter(models.Image.tags.any(models.Tag.id.in_(descendant_ids)))
+        .filter(visible_image_filter(current_user))
         .order_by(
             models.Image.rating.desc().nullslast(),
             models.Image.date_taken.desc().nullslast(),
@@ -129,7 +151,10 @@ def get_project(slug: str, db: Session = Depends(get_db)):
 
     children = []
     for child_tag in (
-        db.query(models.Tag).filter(models.Tag.parent_tag_id == project_tag.id).all()
+        db.query(models.Tag)
+        .filter(models.Tag.parent_tag_id == project_tag.id)
+        .filter(visible_tag_filter(current_user))
+        .all()
     ):
         child_slug = _project_slug(child_tag.name)
         if not child_slug:
@@ -138,6 +163,7 @@ def get_project(slug: str, db: Session = Depends(get_db)):
         child_count = (
             db.query(models.Image)
             .filter(models.Image.tags.any(models.Tag.id.in_(child_ids)))
+            .filter(visible_image_filter(current_user))
             .count()
         )
         children.append(
@@ -186,8 +212,7 @@ def assign_project(
     current_user: models.User = Depends(get_current_user),
 ):
     img = db.query(models.Image).filter(models.Image.id == image_id).first()
-    if not img:
-        raise HTTPException(status_code=404, detail="Image not found")
+    img = require_image_access(img, current_user)
 
     slug = normalize_slug(body.project)
     if not slug:
@@ -221,11 +246,13 @@ def assign_project(
 
 @router.delete("/api/images/{image_id}/project", response_model=schemas.Image)
 def remove_project(
-    image_id: int, body: schemas.ProjectRemoveRequest, db: Session = Depends(get_db)
+    image_id: int,
+    body: schemas.ProjectRemoveRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     img = db.query(models.Image).filter(models.Image.id == image_id).first()
-    if not img:
-        raise HTTPException(status_code=404, detail="Image not found")
+    img = require_image_access(img, current_user)
 
     slug = normalize_slug(body.project)
 
