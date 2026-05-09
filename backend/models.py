@@ -59,6 +59,15 @@ class Image(SQLModel, table=True):
     )
     model: Optional[str] = None
     thumbnail_path: Optional[str] = None
+    user_id: Optional[int] = Field(
+        default=None,
+        sa_column=Column(
+            Integer,
+            ForeignKey("users.id", ondelete="SET NULL"),
+            nullable=True,
+            index=True,
+        ),
+    )
 
     tags: List["Tag"] = Relationship(
         back_populates="images",
@@ -76,6 +85,15 @@ class Tag(SQLModel, table=True):
         sa_column=Column(
             Integer,
             ForeignKey("tags.id", ondelete="SET NULL"),
+            nullable=True,
+            index=True,
+        ),
+    )
+    user_id: Optional[int] = Field(
+        default=None,
+        sa_column=Column(
+            Integer,
+            ForeignKey("users.id", ondelete="SET NULL"),
             nullable=True,
             index=True,
         ),

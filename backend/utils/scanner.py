@@ -168,7 +168,9 @@ def create_thumbnail(filepath: Path, thumb_path: Path, max_size: int = 400):
         return None
 
 
-def scan_image_file(db: Session, filepath: Path) -> str:
+def scan_image_file(
+    db: Session, filepath: Path, user_id: Optional[int] = None
+) -> str:
     """Ingest (or update) a single image file. Returns 'added' or 'updated'."""
     ensure_thumbnail_dir()
     fname = filepath.name
@@ -234,6 +236,7 @@ def scan_image_file(db: Session, filepath: Path) -> str:
             description=sidecar_meta.get("description"),
             model=sidecar_meta.get("model"),
             thumbnail_path=str(thumb_path),
+            user_id=user_id,
         )
         db.add(new_image)
         db.commit()
@@ -241,7 +244,9 @@ def scan_image_file(db: Session, filepath: Path) -> str:
         return "added", new_image.id
 
 
-def scan_directory(db: Session, directory: str) -> Dict[str, int]:
+def scan_directory(
+    db: Session, directory: str, user_id: Optional[int] = None
+) -> Dict[str, int]:
     ensure_thumbnail_dir()
     directory_path = Path(directory)
     if not directory_path.exists():
@@ -268,7 +273,7 @@ def scan_directory(db: Session, directory: str) -> Dict[str, int]:
         stats["scanned"] += 1
         if find_sidecar(filepath):
             stats["with_sidecar"] += 1
-        result, image_id = scan_image_file(db, filepath)
+        result, image_id = scan_image_file(db, filepath, user_id=user_id)
         stats[result] += 1
         image_ids_processed.append(image_id)
 

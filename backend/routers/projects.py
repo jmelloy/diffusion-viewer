@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, aliased
 import models
 import schemas
 from database import get_db
+from utils.security import get_current_user
 
 router = APIRouter(tags=["projects"])
 
@@ -159,10 +160,19 @@ def get_project(slug: str, db: Session = Depends(get_db)):
     )
 
 
-def _ensure_tag(db: Session, name: str, parent: models.Tag | None = None) -> models.Tag:
+def _ensure_tag(
+    db: Session,
+    name: str,
+    parent: models.Tag | None = None,
+    user_id: int | None = None,
+) -> models.Tag:
     tag = db.query(models.Tag).filter(models.Tag.name == name).first()
     if not tag:
-        tag = models.Tag(name=name, parent_tag_id=parent.id if parent else None)
+        tag = models.Tag(
+            name=name,
+            parent_tag_id=parent.id if parent else None,
+            user_id=user_id,
+        )
         db.add(tag)
         db.flush()
     return tag
@@ -170,7 +180,10 @@ def _ensure_tag(db: Session, name: str, parent: models.Tag | None = None) -> mod
 
 @router.post("/api/images/{image_id}/project", response_model=schemas.Image)
 def assign_project(
-    image_id: int, body: schemas.ProjectAssignRequest, db: Session = Depends(get_db)
+    image_id: int,
+    body: schemas.ProjectAssignRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     img = db.query(models.Image).filter(models.Image.id == image_id).first()
     if not img:
@@ -180,7 +193,7 @@ def assign_project(
     if not slug:
         raise HTTPException(status_code=400, detail="Invalid project name")
 
-    project_tag = _ensure_tag(db, f"project:{slug}")
+    project_tag = _ensure_tag(db, f"project:{slug}", user_id=current_user.id)
     if project_tag not in img.tags:
         img.tags.append(project_tag)
 
@@ -192,7 +205,12 @@ def assign_project(
             value = value.strip().lower()
             if not value:
                 continue
-            tag = _ensure_tag(db, f"project:{slug}:{role}:{value}", parent=project_tag)
+            tag = _ensure_tag(
+                db,
+                f"project:{slug}:{role}:{value}",
+                parent=project_tag,
+                user_id=current_user.id,
+            )
             if tag not in img.tags:
                 img.tags.append(tag)
 

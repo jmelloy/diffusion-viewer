@@ -13,6 +13,7 @@ import models
 import schemas
 from database import get_db
 from utils.scanner import scan_directory, create_thumbnail, THUMBNAIL_DIR
+from utils.security import get_current_user
 
 router = APIRouter(prefix="/api/images", tags=["images"])
 
@@ -220,7 +221,10 @@ def update_rating(
 
 @router.post("/{image_id}/tags", response_model=schemas.Image)
 def add_tags(
-    image_id: int, body: schemas.TagsAddRequest, db: Session = Depends(get_db)
+    image_id: int,
+    body: schemas.TagsAddRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     img = db.query(models.Image).filter(models.Image.id == image_id).first()
     if not img:
@@ -232,7 +236,7 @@ def add_tags(
             continue
         tag = db.query(models.Tag).filter(models.Tag.name == tag_name).first()
         if not tag:
-            tag = models.Tag(name=tag_name)
+            tag = models.Tag(name=tag_name, user_id=current_user.id)
             db.add(tag)
             db.flush()
         if tag not in img.tags:
@@ -257,7 +261,11 @@ def remove_tag(image_id: int, tag_name: str, db: Session = Depends(get_db)):
 
 
 @router.post("/bulk-tag", response_model=dict)
-def bulk_tag(body: schemas.BulkTagRequest, db: Session = Depends(get_db)):
+def bulk_tag(
+    body: schemas.BulkTagRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     images = db.query(models.Image).filter(models.Image.id.in_(body.image_ids)).all()
     tags = []
     for tag_name in body.tag_names:
@@ -266,7 +274,7 @@ def bulk_tag(body: schemas.BulkTagRequest, db: Session = Depends(get_db)):
             continue
         tag = db.query(models.Tag).filter(models.Tag.name == tag_name).first()
         if not tag:
-            tag = models.Tag(name=tag_name)
+            tag = models.Tag(name=tag_name, user_id=current_user.id)
             db.add(tag)
             db.flush()
         tags.append(tag)
@@ -310,7 +318,9 @@ def bulk_rating(body: schemas.BulkRatingRequest, db: Session = Depends(get_db)):
 
 @router.post("/scan", response_model=dict)
 def scan(
-    body: schemas.ScanRequest = schemas.ScanRequest(), db: Session = Depends(get_db)
+    body: schemas.ScanRequest = schemas.ScanRequest(),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     import os
 
@@ -320,7 +330,7 @@ def scan(
             status_code=400, detail="No directory specified and IMAGE_DIR is not set"
         )
     try:
-        stats = scan_directory(db, directory)
+        stats = scan_directory(db, directory, user_id=current_user.id)
         return stats
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

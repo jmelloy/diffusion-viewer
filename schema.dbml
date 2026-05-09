@@ -19,9 +19,11 @@ Table images {
   description text
   model varchar
   thumbnail_path varchar
+  user_id integer [ref: > users.id, note: 'ON DELETE SET NULL']
 
   indexes {
     id
+    user_id
   }
 }
 
@@ -29,11 +31,13 @@ Table tags {
   id integer [pk, increment]
   name varchar [unique, not null]
   parent_tag_id integer [ref: > tags.id, note: 'ON DELETE SET NULL']
+  user_id integer [ref: > users.id, note: 'ON DELETE SET NULL']
 
   indexes {
     id
     name [unique]
     parent_tag_id
+    user_id
   }
 }
 
