@@ -1,9 +1,13 @@
 <template>
   <div
-    class="relative group rounded-lg overflow-hidden bg-gray-800 cursor-pointer"
+    :class="[
+      'relative group rounded-lg overflow-hidden bg-gray-800 cursor-pointer transition-shadow',
+      selected ? 'ring-2 ring-purple-500' : '',
+      selectionMode && !selected ? 'ring-1 ring-gray-600 hover:ring-purple-400' : '',
+    ]"
     @click.stop="handleClick"
   >
-    <!-- Checkbox -->
+    <!-- Checkbox — always clickable, even outside selection mode -->
     <div class="absolute top-2 left-2 z-10" @click.stop>
       <input
         type="checkbox"
@@ -88,12 +92,17 @@ import { useRouter } from 'vue-router'
 const props = defineProps({
   image: { type: Object, required: true },
   selected: { type: Boolean, default: false },
+  selectionMode: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['toggle-select', 'rate'])
 const router = useRouter()
 
 function handleClick() {
+  if (props.selectionMode) {
+    emit('toggle-select')
+    return
+  }
   router.push(`/image/${props.image.id}`)
 }
 
