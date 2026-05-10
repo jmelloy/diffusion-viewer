@@ -145,3 +145,66 @@ class ProjectRemoveRequest(BaseModel):
     project: str
     # Same shape as assign. Omit to remove the project entirely (and all its role tags).
     roles: Optional[Dict[str, List[str]]] = None
+
+
+# --------------------------------------------------------------------------- #
+# Albums (photosafe-aligned).
+# --------------------------------------------------------------------------- #
+
+
+class AlbumRoleInfo(BaseModel):
+    id: int
+    role: str
+    value: str
+
+    model_config = {"from_attributes": True}
+
+
+class AlbumInfo(BaseModel):
+    id: int
+    uuid: str
+    slug: str
+    name: str
+    description: Optional[str] = None
+    parent_album_id: Optional[int] = None
+    parent_slug: Optional[str] = None
+    image_count: int = 0
+    role_count: int = 0
+    deleted_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class AlbumDetail(AlbumInfo):
+    children: List[AlbumInfo] = []
+    roles: List[AlbumRoleInfo] = []
+    images: List[Image] = []
+
+
+class AlbumCreate(BaseModel):
+    slug: Optional[str] = None
+    name: str
+    description: Optional[str] = None
+    parent_slug: Optional[str] = None
+
+
+class AlbumUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    parent_slug: Optional[str] = None
+
+
+class AlbumPhotoLinkRequest(BaseModel):
+    image_ids: List[int]
+
+
+class AlbumRoleCreate(BaseModel):
+    role: str
+    value: str
+
+
+class AlbumSyncStats(BaseModel):
+    albums_created: int
+    albums_updated: int
+    roles_created: int
+    photos_linked: int

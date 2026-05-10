@@ -136,5 +136,17 @@ def scan_directory(db: Session, directory: str) -> Dict[str, int]:
             len(image_ids_processed),
         )
 
+    # Refresh photosafe-aligned albums from the legacy `project:*` tag
+    # convention. Idempotent and quick when nothing has changed.
+    try:
+        from utils.albums import materialize_project_tags
+
+        album_stats = materialize_project_tags(db)
+        stats["albums_created"] = album_stats.albums_created
+        stats["albums_updated"] = album_stats.albums_updated
+        stats["album_photos_linked"] = album_stats.photos_linked
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Album materialization failed (non-fatal): %s", e)
+
     logger.info("Scan complete: %s", stats)
     return stats

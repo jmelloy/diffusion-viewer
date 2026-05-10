@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from routers import images, tags, projects
+from routers import albums, images, tags, projects
 from utils.watcher import start_watcher, stop_watcher
 
 logger = logging.getLogger(__name__)
@@ -60,6 +60,7 @@ app.add_middleware(
 app.include_router(images.router)
 app.include_router(tags.router)
 app.include_router(projects.router)
+app.include_router(albums.router)
 
 # Serve thumbnails statically
 thumbnails_dir.mkdir(exist_ok=True)
