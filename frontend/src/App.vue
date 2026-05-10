@@ -9,6 +9,12 @@
         <SearchBar />
       </div>
       <router-link
+        to="/albums"
+        class="text-sm text-gray-300 hover:text-white px-3 py-2 rounded-lg hover:bg-gray-700 transition-colors whitespace-nowrap"
+      >
+        📚 Albums
+      </router-link>
+      <router-link
         to="/tags"
         class="text-sm text-gray-300 hover:text-white px-3 py-2 rounded-lg hover:bg-gray-700 transition-colors whitespace-nowrap"
       >

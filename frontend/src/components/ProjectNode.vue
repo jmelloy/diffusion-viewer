@@ -1,7 +1,7 @@
 <template>
   <div>
     <router-link
-      :to="`/projects/${node.slug}`"
+      :to="`${basePath}/${node.slug}`"
       :style="{ paddingLeft: `${12 + depth * 20}px` }"
       class="flex items-center gap-3 py-2 pr-3 rounded hover:bg-gray-800 transition-colors"
     >
@@ -19,6 +19,7 @@
       :node="k"
       :children-by-parent="childrenByParent"
       :depth="depth + 1"
+      :base-path="basePath"
     />
   </div>
 </template>
@@ -30,6 +31,7 @@ const props = defineProps({
   node: { type: Object, required: true },
   childrenByParent: { type: Object, required: true },
   depth: { type: Number, default: 0 },
+  basePath: { type: String, default: '/projects' },
 })
 
 const kids = computed(() => props.childrenByParent[props.node.slug] || [])
