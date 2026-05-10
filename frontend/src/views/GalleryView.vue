@@ -166,6 +166,7 @@
             <ImageCard
               :image="entry.img"
               :selected="store.selectedImageIds.includes(entry.img.id)"
+              :selection-mode="selectionMode"
               @toggle-select="store.toggleImageSelection(entry.img.id)"
               @rate="(r) => store.rateImage(entry.img.id, r)"
             />
@@ -183,8 +184,102 @@
       </template>
     </main>
 
-    <!-- Right sidebar: projects, tags, bulk actions -->
-    <aside class="w-72 bg-gray-800 border-l border-gray-700 overflow-y-auto p-4 flex-shrink-0">
+    <!-- Right sidebar: bulk actions (top, fixed) + projects/tags (scrollable) -->
+    <aside class="w-72 bg-gray-800 border-l border-gray-700 flex-shrink-0 flex flex-col min-h-0">
+      <!-- Bulk actions — pinned to top, always visible -->
+      <div class="flex-shrink-0 border-b border-gray-700 p-4">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+            {{ store.selectedImageIds.length }} selected
+          </span>
+          <button
+            @click="selectionMode = !selectionMode"
+            :class="[
+              'text-xs px-2 py-1 rounded transition-colors',
+              selectionMode
+                ? 'bg-purple-600 text-white hover:bg-purple-500'
+                : 'bg-gray-700 text-gray-300 hover:bg-gray-600',
+            ]"
+            :title="selectionMode ? 'Exit selection mode (clicking opens images)' : 'Enter selection mode (clicking selects)'"
+          >
+            {{ selectionMode ? '✓ Select Mode' : 'Select Mode' }}
+          </button>
+        </div>
+
+        <div class="flex gap-1 mb-2">
+          <button
+            @click="store.selectAll()"
+            :disabled="!store.images.length"
+            class="text-xs bg-gray-700 hover:bg-gray-600 disabled:opacity-40 px-2 py-1 rounded flex-1"
+          >
+            All
+          </button>
+          <button
+            @click="store.clearSelection()"
+            :disabled="!store.selectedImageIds.length"
+            class="text-xs bg-gray-700 hover:bg-gray-600 disabled:opacity-40 px-2 py-1 rounded flex-1"
+          >
+            None
+          </button>
+        </div>
+
+        <fieldset :disabled="!store.selectedImageIds.length" class="contents">
+          <div :class="['space-y-2', !store.selectedImageIds.length ? 'opacity-50 pointer-events-none' : '']">
+            <!-- Add tags -->
+            <div>
+              <input
+                v-model="bulkTagInput"
+                placeholder="tag1, tag2…"
+                class="w-full bg-gray-700 border border-gray-600 text-white rounded px-2 py-1 text-xs mb-1"
+                @keyup.enter="doBulkTag"
+              />
+              <button
+                @click="doBulkTag"
+                class="w-full bg-purple-600 hover:bg-purple-700 text-white rounded px-2 py-1 text-xs"
+              >
+                Bulk Tag
+              </button>
+            </div>
+
+            <!-- Remove tag -->
+            <div v-if="selectedImagesTags.length">
+              <select
+                v-model="bulkRemoveTagInput"
+                class="w-full bg-gray-700 border border-gray-600 text-white rounded px-2 py-1 text-xs mb-1"
+              >
+                <option value="">— remove a tag —</option>
+                <option v-for="tag in selectedImagesTags" :key="tag" :value="tag">{{ tag }}</option>
+              </select>
+              <button
+                @click="doBulkRemoveTag"
+                :disabled="!bulkRemoveTagInput"
+                class="w-full bg-red-700 hover:bg-red-600 disabled:opacity-40 text-white rounded px-2 py-1 text-xs"
+              >
+                Remove Tag
+              </button>
+            </div>
+
+            <!-- Assign to project -->
+            <button
+              @click="showBulkProjectModal = true"
+              class="w-full bg-indigo-700 hover:bg-indigo-600 text-white rounded px-2 py-1 text-xs"
+            >
+              📁 Assign to Project
+            </button>
+
+            <!-- Thumbs down -->
+            <button
+              @click="doBulkThumbsDown"
+              class="w-full bg-gray-700 hover:bg-gray-600 text-white rounded px-2 py-1 text-xs"
+            >
+              👎 Thumbs Down
+            </button>
+          </div>
+        </fieldset>
+      </div>
+
+      <!-- Projects + tags — scrollable -->
+      <div class="flex-1 overflow-y-auto p-4 min-h-0">
       <!-- Projects -->
       <div class="mb-4">
         <div class="flex items-center justify-between mb-2">
@@ -307,66 +402,6 @@
         </div>
       </div>
 
-      <!-- Bulk actions -->
-      <div v-if="store.selectedImageIds.length" class="mt-4 border-t border-gray-700 pt-4">
-        <p class="text-xs text-gray-400 mb-2">{{ store.selectedImageIds.length }} selected</p>
-        <div class="flex gap-1 mb-3">
-          <button @click="store.selectAll()" class="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded">
-            All
-          </button>
-          <button @click="store.clearSelection()" class="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded">
-            None
-          </button>
-        </div>
-
-        <!-- Add tags -->
-        <input
-          v-model="bulkTagInput"
-          placeholder="tag1, tag2…"
-          class="w-full bg-gray-700 border border-gray-600 text-white rounded px-2 py-1 text-xs mb-1"
-          @keyup.enter="doBulkTag"
-        />
-        <button
-          @click="doBulkTag"
-          class="w-full bg-purple-600 hover:bg-purple-700 text-white rounded px-2 py-1 text-xs mb-3"
-        >
-          Bulk Tag
-        </button>
-
-        <!-- Remove tag -->
-        <div v-if="selectedImagesTags.length" class="mb-3">
-          <label class="block text-xs text-gray-400 mb-1">Remove Tag</label>
-          <select
-            v-model="bulkRemoveTagInput"
-            class="w-full bg-gray-700 border border-gray-600 text-white rounded px-2 py-1 text-xs mb-1"
-          >
-            <option value="">— pick a tag —</option>
-            <option v-for="tag in selectedImagesTags" :key="tag" :value="tag">{{ tag }}</option>
-          </select>
-          <button
-            @click="doBulkRemoveTag"
-            :disabled="!bulkRemoveTagInput"
-            class="w-full bg-red-700 hover:bg-red-600 disabled:opacity-40 text-white rounded px-2 py-1 text-xs"
-          >
-            Remove Tag
-          </button>
-        </div>
-
-        <!-- Assign to project -->
-        <button
-          @click="showBulkProjectModal = true"
-          class="w-full bg-indigo-700 hover:bg-indigo-600 text-white rounded px-2 py-1 text-xs mb-2"
-        >
-          📁 Assign to Project
-        </button>
-
-        <!-- Thumbs down -->
-        <button
-          @click="doBulkThumbsDown"
-          class="w-full bg-gray-700 hover:bg-gray-600 text-white rounded px-2 py-1 text-xs"
-        >
-          👎 Thumbs Down
-        </button>
       </div>
     </aside>
   </div>
@@ -385,6 +420,10 @@ const bulkTagInput = ref('')
 const tagFilterQuery = ref('')
 const tagViewMode = ref('tree')   // 'tree' | 'flat'
 const bulkRemoveTagInput = ref('')
+// When true, clicking a thumbnail toggles its selection instead of opening
+// the detail view. Auto-engages once the user has any selection so the user
+// can keep selecting more without fighting navigation.
+const selectionMode = ref(false)
 const galleryEl = ref(null)
 const sentinelEl = ref(null)
 const showBulkProjectModal = ref(false)
