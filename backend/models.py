@@ -1,7 +1,9 @@
+import uuid as _uuid
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, Text
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Integer, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
 
 
@@ -22,6 +24,16 @@ class Image(SQLModel, table=True):
     __tablename__ = "images"
 
     id: Optional[int] = Field(default=None, primary_key=True, index=True)
+    # Photosafe-aligned secondary identifier. Stable across re-imports and safe
+    # to expose to mobile/sync clients. Will become the canonical PK in the
+    # eventual photosafe merge.
+    uuid: str = Field(
+        default_factory=lambda: str(_uuid.uuid4()),
+        max_length=36,
+        unique=True,
+        nullable=False,
+        index=True,
+    )
     filename: str = Field(nullable=False)
     filepath: str = Field(unique=True, nullable=False)
     directory: str = Field(nullable=False)
@@ -37,10 +49,24 @@ class Image(SQLModel, table=True):
             onupdate=datetime.utcnow,
         )
     )
+    # Photosafe-style soft delete. `hidden` stays for now as a UI flag (e.g.
+    # rating == -1 hides without deleting); `deleted_at` is the canonical
+    # tombstone.
+    deleted_at: Optional[datetime] = Field(default=None, index=True)
     rating: int = Field(default=0)
     hidden: bool = Field(default=False)
+    # Legacy: raw sidecar JSON stored as TEXT. Kept for backward compatibility
+    # with existing ilike-based search; new code should read `sidecar`.
     sidecar_data: Optional[str] = Field(
         default=None, sa_column=Column(Text, nullable=True)
+    )
+    # Structured sidecar payload. JSONB on Postgres, JSON on SQLite.
+    sidecar: Optional[Dict[str, Any]] = Field(
+        default=None,
+        sa_column=Column(
+            JSON().with_variant(JSONB(), "postgresql"),
+            nullable=True,
+        ),
     )
     prompt: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     description: Optional[str] = Field(

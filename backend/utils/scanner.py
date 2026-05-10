@@ -177,10 +177,12 @@ def scan_image_file(db: Session, filepath: Path) -> str:
     sidecar_path = find_sidecar(filepath)
     sidecar_meta: Dict[str, Any] = {}
     sidecar_raw: Optional[str] = None
+    sidecar_obj: Optional[Dict[str, Any]] = None
     if sidecar_path is not None:
         sidecar_meta = parse_sidecar(sidecar_path)
         raw = sidecar_meta.pop("_raw", None)
         if raw is not None:
+            sidecar_obj = raw if isinstance(raw, dict) else None
             sidecar_raw = json.dumps(raw)
 
     try:
@@ -213,6 +215,7 @@ def scan_image_file(db: Session, filepath: Path) -> str:
         existing.date_taken = date_taken
         existing.updated_at = datetime.utcnow()
         existing.sidecar_data = sidecar_raw
+        existing.sidecar = sidecar_obj
         existing.prompt = sidecar_meta.get("prompt")
         existing.description = sidecar_meta.get("description")
         existing.model = sidecar_meta.get("model")
@@ -230,6 +233,7 @@ def scan_image_file(db: Session, filepath: Path) -> str:
             file_size=file_size,
             date_taken=date_taken,
             sidecar_data=sidecar_raw,
+            sidecar=sidecar_obj,
             prompt=sidecar_meta.get("prompt"),
             description=sidecar_meta.get("description"),
             model=sidecar_meta.get("model"),

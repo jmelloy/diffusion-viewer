@@ -201,13 +201,16 @@ def update_rating(
     img = db.query(models.Image).filter(models.Image.id == image_id).first()
     if not img:
         raise HTTPException(status_code=404, detail="Image not found")
+    from datetime import datetime
+
     img.rating = rating_update.rating
     if rating_update.rating == -1:
         img.hidden = True
+        if img.deleted_at is None:
+            img.deleted_at = datetime.utcnow()
     else:
         img.hidden = False
-    from datetime import datetime
-
+        img.deleted_at = None
     img.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(img)
@@ -296,10 +299,16 @@ def bulk_rating(body: schemas.BulkRatingRequest, db: Session = Depends(get_db)):
     from datetime import datetime
 
     images = db.query(models.Image).filter(models.Image.id.in_(body.image_ids)).all()
+    now = datetime.utcnow()
     for img in images:
         img.rating = body.rating
         img.hidden = body.rating == -1
-        img.updated_at = datetime.utcnow()
+        if body.rating == -1:
+            if img.deleted_at is None:
+                img.deleted_at = now
+        else:
+            img.deleted_at = None
+        img.updated_at = now
     db.commit()
     return {"rated": len(images), "rating": body.rating}
 
@@ -329,10 +338,13 @@ def delete_image(image_id: int, db: Session = Depends(get_db)):
     img = db.query(models.Image).filter(models.Image.id == image_id).first()
     if not img:
         raise HTTPException(status_code=404, detail="Image not found")
-    img.hidden = True
     from datetime import datetime
 
-    img.updated_at = datetime.utcnow()
+    now = datetime.utcnow()
+    img.hidden = True
+    if img.deleted_at is None:
+        img.deleted_at = now
+    img.updated_at = now
     db.commit()
     db.refresh(img)
     return img
