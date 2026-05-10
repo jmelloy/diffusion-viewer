@@ -2,6 +2,7 @@ import uuid as _uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+import sqlalchemy as sa
 from sqlalchemy import JSON, Column, DateTime, ForeignKey, Integer, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
@@ -107,3 +108,120 @@ class Tag(SQLModel, table=True):
     children: List["Tag"] = Relationship(
         back_populates="parent",
     )
+
+
+# --------------------------------------------------------------------------- #
+# Photosafe-style albums.
+#
+# Coexists with the legacy `project:<slug>[:role:value]` tag convention; the
+# materializer in `utils/albums.py` keeps `albums` populated from those tags
+# until callers are migrated.
+# --------------------------------------------------------------------------- #
+
+
+class AlbumPhoto(SQLModel, table=True):
+    __tablename__ = "album_photos"
+
+    album_id: Optional[int] = Field(
+        default=None,
+        sa_column=Column(
+            Integer,
+            ForeignKey("albums.id", ondelete="CASCADE"),
+            primary_key=True,
+        ),
+    )
+    image_id: Optional[int] = Field(
+        default=None,
+        sa_column=Column(
+            Integer,
+            ForeignKey("images.id", ondelete="CASCADE"),
+            primary_key=True,
+        ),
+    )
+    added_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
+
+
+class Album(SQLModel, table=True):
+    __tablename__ = "albums"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    uuid: str = Field(
+        default_factory=lambda: str(_uuid.uuid4()),
+        max_length=36,
+        unique=True,
+        nullable=False,
+        index=True,
+    )
+    slug: str = Field(unique=True, nullable=False, index=True)
+    name: str = Field(nullable=False)
+    description: Optional[str] = Field(
+        default=None, sa_column=Column(Text, nullable=True)
+    )
+    parent_album_id: Optional[int] = Field(
+        default=None,
+        sa_column=Column(
+            Integer,
+            ForeignKey("albums.id", ondelete="SET NULL"),
+            nullable=True,
+            index=True,
+        ),
+    )
+    # Provenance pointer: the `project:<slug>` tag this album was materialized
+    # from. Kept so the materializer can stay idempotent.
+    source_tag_id: Optional[int] = Field(
+        default=None,
+        sa_column=Column(
+            Integer,
+            ForeignKey("tags.id", ondelete="SET NULL"),
+            nullable=True,
+            index=True,
+        ),
+    )
+    created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
+    updated_at: Optional[datetime] = Field(
+        sa_column=Column(
+            DateTime,
+            default=datetime.utcnow,
+            onupdate=datetime.utcnow,
+        )
+    )
+    deleted_at: Optional[datetime] = None
+
+    images: List[Image] = Relationship(
+        sa_relationship_kwargs={"secondary": "album_photos", "viewonly": True}
+    )
+    parent: Optional["Album"] = Relationship(
+        back_populates="children",
+        sa_relationship_kwargs={"remote_side": "Album.id"},
+    )
+    children: List["Album"] = Relationship(back_populates="parent")
+    roles: List["AlbumRole"] = Relationship(back_populates="album")
+
+
+class AlbumRole(SQLModel, table=True):
+    """Project metadata layer.
+
+    Mirrors the legacy ``project:<slug>:<role>:<value>`` tag convention. Each
+    row is an (album, role, value) triple — e.g. (Cluedo, "character", "Plum").
+    """
+
+    __tablename__ = "album_roles"
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "album_id", "role", "value", name="uq_album_roles_album_role_value"
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    album_id: int = Field(
+        sa_column=Column(
+            Integer,
+            ForeignKey("albums.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        )
+    )
+    role: str = Field(nullable=False)
+    value: str = Field(nullable=False)
+
+    album: Optional[Album] = Relationship(back_populates="roles")
