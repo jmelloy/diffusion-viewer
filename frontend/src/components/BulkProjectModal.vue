@@ -64,7 +64,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
-import { useProjectsStore } from '../stores/projects.js'
+import { useProjectsStore } from '../stores/projects'
 import RolesEditor from './RolesEditor.vue'
 
 const props = defineProps({

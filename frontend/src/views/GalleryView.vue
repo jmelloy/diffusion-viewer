@@ -374,8 +374,8 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useImagesStore } from '../stores/images.js'
-import { useProjectsStore } from '../stores/projects.js'
+import { useImagesStore } from '../stores/images'
+import { useProjectsStore } from '../stores/projects'
 import ImageCard from '../components/ImageCard.vue'
 import BulkProjectModal from '../components/BulkProjectModal.vue'
 

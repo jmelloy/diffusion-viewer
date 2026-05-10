@@ -27,7 +27,7 @@
 </template>
 
 <script setup>
-import { useImagesStore } from '../stores/images.js'
+import { useImagesStore } from '../stores/images'
 
 const store = useImagesStore()
 

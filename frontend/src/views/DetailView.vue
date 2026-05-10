@@ -152,7 +152,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
-import { useImagesStore } from '../stores/images.js'
+import { useImagesStore } from '../stores/images'
 import RatingWidget from '../components/RatingWidget.vue'
 import TagManager from '../components/TagManager.vue'
 import AssignProjectModal from '../components/AssignProjectModal.vue'

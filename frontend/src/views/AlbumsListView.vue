@@ -40,7 +40,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useAlbumsStore } from '../stores/albums.js'
+import { useAlbumsStore } from '../stores/albums'
 import ProjectNode from '../components/ProjectNode.vue'
 
 const store = useAlbumsStore()

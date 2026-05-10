@@ -71,7 +71,7 @@
 <script setup>
 import { ref } from 'vue'
 import SearchBar from './components/SearchBar.vue'
-import { useImagesStore } from './stores/images.js'
+import { useImagesStore } from './stores/images'
 
 const store = useImagesStore()
 const showScanModal = ref(false)

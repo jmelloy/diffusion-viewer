@@ -231,7 +231,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import axios from 'axios'
-import { useImagesStore } from '../stores/images.js'
+import { useImagesStore } from '../stores/images'
 
 const store = useImagesStore()
 

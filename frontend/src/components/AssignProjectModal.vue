@@ -79,7 +79,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useProjectsStore } from '../stores/projects.js'
+import { useProjectsStore } from '../stores/projects'
 import RolesEditor from './RolesEditor.vue'
 
 const props = defineProps({

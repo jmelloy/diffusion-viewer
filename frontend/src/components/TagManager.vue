@@ -45,7 +45,7 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue'
-import { useImagesStore } from '../stores/images.js'
+import { useImagesStore } from '../stores/images'
 
 const props = defineProps({
   imageId: { type: Number, required: true },

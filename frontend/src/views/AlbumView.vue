@@ -97,7 +97,7 @@
 <script setup>
 import { ref, computed, onMounted, watch, h } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useAlbumsStore } from '../stores/albums.js'
+import { useAlbumsStore } from '../stores/albums'
 
 const route = useRoute()
 const router = useRouter()

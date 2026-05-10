@@ -23,7 +23,7 @@
 
 <script setup>
 import { onMounted, computed } from 'vue'
-import { useProjectsStore } from '../stores/projects.js'
+import { useProjectsStore } from '../stores/projects'
 import ProjectNode from '../components/ProjectNode.vue'
 
 const store = useProjectsStore()
