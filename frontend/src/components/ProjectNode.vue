@@ -1,7 +1,7 @@
 <template>
   <div>
     <router-link
-      :to="`/projects/${node.slug}`"
+      :to="`${basePath}/${node.slug}`"
       :style="{ paddingLeft: `${12 + depth * 20}px` }"
       class="flex items-center gap-3 py-2 pr-3 rounded hover:bg-gray-800 transition-colors"
     >
@@ -19,18 +19,30 @@
       :node="k"
       :children-by-parent="childrenByParent"
       :depth="depth + 1"
+      :base-path="basePath"
     />
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed } from 'vue'
 
-const props = defineProps({
-  node: { type: Object, required: true },
-  childrenByParent: { type: Object, required: true },
-  depth: { type: Number, default: 0 },
-})
+interface NodeShape {
+  slug: string
+  name: string
+  image_count: number
+  parent_slug?: string | null
+}
 
-const kids = computed(() => props.childrenByParent[props.node.slug] || [])
+const props = withDefaults(
+  defineProps<{
+    node: NodeShape
+    childrenByParent: Record<string, NodeShape[]>
+    depth?: number
+    basePath?: string
+  }>(),
+  { depth: 0, basePath: '/projects' },
+)
+
+const kids = computed<NodeShape[]>(() => props.childrenByParent[props.node.slug] || [])
 </script>

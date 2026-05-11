@@ -128,70 +128,74 @@
   </div>
 </template>
 
-<script setup>
-import { ref, computed, onMounted, watch, h } from 'vue'
+<script setup lang="ts">
+import { ref, computed, onMounted, watch, h, defineComponent } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
+import type { Image, ProjectDetail } from '../types/api'
 
 const route = useRoute()
 const router = useRouter()
-const slug = computed(() => route.params.slug)
-const project = ref(null)
+const slug = computed<string>(() => String(route.params.slug ?? ''))
+const project = ref<ProjectDetail | null>(null)
 const loading = ref(false)
 
-const activeRole = computed(() => route.query.role || '')
-const activeValue = computed(() => route.query.value || '')
+const activeRole = computed<string>(() => String(route.query.role ?? ''))
+const activeValue = computed<string>(() => String(route.query.value ?? ''))
 
-const ROLE_ORDER = ['suspect', 'weapon', 'room', 'character', 'scene', 'background', 'prop', 'concept', 'reference', '']
+const ROLE_ORDER = [
+  'suspect', 'weapon', 'room', 'character', 'scene', 'background', 'prop', 'concept', 'reference', '',
+] as const
 
-const roleNames = computed(() => {
+const roleNames = computed<string[]>(() => {
   if (!project.value) return []
   const present = Object.keys(project.value.roles)
-  const known = ROLE_ORDER.filter(r => present.includes(r))
-  const extras = present.filter(r => !ROLE_ORDER.includes(r)).sort()
+  const known = (ROLE_ORDER as readonly string[]).filter((r) => present.includes(r))
+  const extras = present.filter((r) => !(ROLE_ORDER as readonly string[]).includes(r)).sort()
   return [...known, ...extras]
 })
 
-function roleTotal(role) {
+function roleTotal(role: string): number {
   if (!project.value) return 0
   const values = project.value.roles[role] || {}
   return Object.values(values).reduce((sum, imgs) => sum + imgs.length, 0)
 }
 
-function sortedValues(role) {
+function sortedValues(role: string): [string, Image[]][] {
   if (!project.value) return []
   const values = project.value.roles[role] || {}
   return Object.entries(values).sort((a, b) => b[1].length - a[1].length)
 }
 
-const filteredImages = computed(() => {
+const filteredImages = computed<Image[]>(() => {
   if (!project.value || !activeRole.value) return []
   const values = project.value.roles[activeRole.value] || {}
   if (activeValue.value) return values[activeValue.value] || []
   return Object.values(values).flat()
 })
 
-function setFilter(role, value) {
+function setFilter(role: string, value: string): void {
   router.replace({ query: { role, value } })
 }
 
-function toggleRole(role) {
+function toggleRole(role: string): void {
   if (activeRole.value === role && !activeValue.value) clearFilter()
   else router.replace({ query: { role, value: '' } })
 }
 
-function clearFilter() {
+function clearFilter(): void {
   router.replace({ query: {} })
 }
 
-async function loadProject() {
+async function loadProject(): Promise<void> {
   loading.value = true
   project.value = null
   try {
-    const res = await axios.get(`/api/projects/${slug.value}`)
+    const res = await axios.get<ProjectDetail>(`/api/projects/${slug.value}`)
     project.value = res.data
   } catch (e) {
-    if (e.response?.status !== 404) console.error('loadProject failed', e)
+    if (axios.isAxiosError(e) && e.response?.status === 404) return
+    console.error('loadProject failed', e)
   } finally {
     loading.value = false
   }
@@ -200,25 +204,30 @@ async function loadProject() {
 onMounted(loadProject)
 watch(slug, loadProject)
 
-// Inline thumbnail card
-const ImageThumb = {
-  props: ['img'],
+const ImageThumb = defineComponent({
+  props: { img: { type: Object as () => Image, required: true } },
   setup(props) {
-    const onErr = (e) => {
-      e.target.src = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Crect width='100' height='100' fill='%23374151'/%3E%3C/svg%3E`
+    const onErr = (e: Event): void => {
+      const target = e.target as HTMLImageElement
+      target.src = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Crect width='100' height='100' fill='%23374151'/%3E%3C/svg%3E`
     }
-    return () => h('div', {
-      class: 'group rounded-lg overflow-hidden bg-gray-800 cursor-pointer aspect-square',
-      onClick: () => router.push(`/image/${props.img.id}`),
-    }, [
-      h('img', {
-        src: `/api/images/${props.img.id}/thumbnail`,
-        alt: props.img.filename,
-        loading: 'lazy',
-        class: 'w-full h-full object-cover transition-transform duration-200 group-hover:scale-105',
-        onError: onErr,
-      }),
-    ])
+    return () =>
+      h(
+        'div',
+        {
+          class: 'group rounded-lg overflow-hidden bg-gray-800 cursor-pointer aspect-square',
+          onClick: () => router.push(`/image/${props.img.id}`),
+        },
+        [
+          h('img', {
+            src: `/api/images/${props.img.id}/thumbnail`,
+            alt: props.img.filename,
+            loading: 'lazy',
+            class: 'w-full h-full object-cover transition-transform duration-200 group-hover:scale-105',
+            onError: onErr,
+          }),
+        ],
+      )
   },
-}
+})
 </script>

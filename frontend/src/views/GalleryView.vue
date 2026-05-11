@@ -407,42 +407,85 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useImagesStore } from '../stores/images.js'
-import { useProjectsStore } from '../stores/projects.js'
+import { useImagesStore } from '../stores/images'
+import { useProjectsStore } from '../stores/projects'
 import ImageCard from '../components/ImageCard.vue'
 import BulkProjectModal from '../components/BulkProjectModal.vue'
+import type { Image, ProjectInfo, Tag } from '../types/api'
+
+interface TagGroup {
+  parent: Tag | null
+  children: Tag[]
+}
+
+interface ProjectTreeNode extends ProjectInfo {
+  children: ProjectTreeNode[]
+}
+
+interface RoleValue {
+  tagName: string
+  label: string
+  image_count: number
+}
+
+type ProjectRow =
+  | {
+      kind: 'project'
+      key: string
+      tagName: string
+      label: string
+      image_count: number
+      depth: number
+      hasChildren: boolean
+      expanded: boolean
+    }
+  | {
+      kind: 'role'
+      key: string
+      label: string
+      count: number
+      depth: number
+      hasChildren: true
+      expanded: boolean
+    }
+  | {
+      kind: 'value'
+      key: string
+      tagName: string
+      label: string
+      image_count: number
+      depth: number
+      hasChildren: false
+    }
 
 const store = useImagesStore()
 const projectsStore = useProjectsStore()
 const bulkTagInput = ref('')
 const tagFilterQuery = ref('')
-const tagViewMode = ref('tree')   // 'tree' | 'flat'
+const tagViewMode = ref<'tree' | 'flat'>('tree')
 const bulkRemoveTagInput = ref('')
 // When true, clicking a thumbnail toggles its selection instead of opening
 // the detail view. Auto-engages once the user has any selection so the user
 // can keep selecting more without fighting navigation.
 const selectionMode = ref(false)
-const galleryEl = ref(null)
-const sentinelEl = ref(null)
+const galleryEl = ref<HTMLElement | null>(null)
+const sentinelEl = ref<HTMLElement | null>(null)
 const showBulkProjectModal = ref(false)
-let observer = null
+let observer: IntersectionObserver | null = null
 
-// Date tree state — default current year + month expanded
 const today = new Date()
 const currentYear = today.getFullYear().toString()
 const currentMonth = String(today.getMonth() + 1).padStart(2, '0')
-const expandedYears = ref(new Set([currentYear]))
-const expandedMonths = ref(new Set([`${currentYear}-${currentMonth}`]))
-const selectedDay = ref(null)
-const selectedMonth = ref(null)  // "YYYY-MM" when a whole month is selected
+const expandedYears = ref<Set<string>>(new Set([currentYear]))
+const expandedMonths = ref<Set<string>>(new Set([`${currentYear}-${currentMonth}`]))
+const selectedDay = ref<string | null>(null)
+const selectedMonth = ref<string | null>(null)
 
-// Project tree expand state — a project's row collapses by default unless
-// it (or one of its descendants) is selected as a filter.
-const expandedProjects = ref(new Set())
+const expandedProjects = ref<Set<string>>(new Set())
 
-function matchesQuery(tag, q) {
+function matchesQuery(tag: Tag, q: string): boolean {
   if (!q) return true
   return tag.name.toLowerCase().includes(q)
 }
@@ -470,47 +513,46 @@ const flatTags = computed(() => {
   return [...pinned, ...rest]
 })
 
-// Tree view: group children under their parent. Orphan tags (no parent and
-// not pointed at by anyone) appear in a final unparented group.
-const tagTree = computed(() => {
-  const byId = new Map(nonProjectTags.value.map((t) => [t.id, t]))
-  const groups = new Map()  // parent_id -> { parent, children: [] }
-  const orphans = []
+const tagTree = computed<TagGroup[]>(() => {
+  const byId = new Map<number, Tag>(nonProjectTags.value.map((t) => [t.id, t]))
+  const groups = new Map<number, TagGroup>()
+  const orphans: Tag[] = []
 
   for (const tag of nonProjectTags.value) {
     if (tag.parent_tag_id && byId.has(tag.parent_tag_id)) {
       const pid = tag.parent_tag_id
       if (!groups.has(pid)) {
-        groups.set(pid, { parent: byId.get(pid), children: [] })
+        groups.set(pid, { parent: byId.get(pid) ?? null, children: [] })
       }
-      groups.get(pid).children.push(tag)
+      groups.get(pid)!.children.push(tag)
     }
   }
 
-  // A tag is an orphan only if it isn't a parent in `groups` and has no parent of its own.
   for (const tag of nonProjectTags.value) {
-    if (groups.has(tag.id)) continue          // is a parent → already represented
-    if (tag.parent_tag_id) continue            // is a child → handled above
+    if (groups.has(tag.id)) continue
+    if (tag.parent_tag_id) continue
     orphans.push(tag)
   }
 
-  const sortByCount = (a, b) => (b.image_count || 0) - (a.image_count || 0)
+  const sortByCount = (a: Tag, b: Tag) => (b.image_count || 0) - (a.image_count || 0)
 
   const groupArr = [...groups.values()]
   for (const g of groupArr) g.children.sort(sortByCount)
-  groupArr.sort((a, b) => (b.parent.image_count || 0) - (a.parent.image_count || 0))
+  groupArr.sort(
+    (a, b) => (b.parent?.image_count || 0) - (a.parent?.image_count || 0),
+  )
   orphans.sort(sortByCount)
 
   if (orphans.length) groupArr.push({ parent: null, children: orphans })
   return groupArr
 })
 
-const visibleTagCount = computed(() => {
+const visibleTagCount = computed<number>(() => {
   if (tagViewMode.value === 'flat' || tagFilterQuery.value) return flatTags.value.length
   return tagTree.value.reduce((n, g) => n + g.children.length + (g.parent ? 1 : 0), 0)
 })
 
-function tagButtonClass(tag) {
+function tagButtonClass(tag: Tag): string[] {
   return [
     'px-2 py-0.5 rounded text-xs transition-colors',
     store.selectedTags.includes(tag.name)
@@ -526,8 +568,6 @@ onMounted(() => {
         if (!entry.isIntersecting) continue
         if (store.loading || store.page >= store.pages) continue
         await store.fetchMoreImages()
-        // Re-observe so a still-intersecting sentinel (short page, big viewport)
-        // triggers another fetch instead of getting stuck.
         if (sentinelEl.value && observer) {
           observer.unobserve(sentinelEl.value)
           observer.observe(sentinelEl.value)
@@ -553,7 +593,7 @@ onBeforeUnmount(() => {
   observer = null
 })
 
-async function onBulkAssigned() {
+async function onBulkAssigned(): Promise<void> {
   showBulkProjectModal.value = false
   await projectsStore.fetchProjects()
 }
@@ -562,18 +602,32 @@ async function onBulkAssigned() {
 // (not plain objects) so iteration order is explicit — JS object key order
 // puts unpadded numeric strings ("10","11","12") before zero-padded ones
 // ("01"…"09"), which scrambled the month/day list.
-const dateTree = computed(() => {
-  const byYear = new Map()
+interface DayBucket {
+  day: string
+  date: string
+  count: number
+}
+interface MonthBucket {
+  month: string
+  days: DayBucket[]
+}
+interface YearBucket {
+  year: string
+  months: MonthBucket[]
+}
+
+const dateTree = computed<YearBucket[]>(() => {
+  const byYear = new Map<string, Map<string, DayBucket[]>>()
   for (const { date, count } of store.availableDates) {
     const [year, month, day] = date.split('-')
-    if (!byYear.has(year)) byYear.set(year, new Map())
-    const byMonth = byYear.get(year)
+    if (!byYear.has(year)) byYear.set(year, new Map<string, DayBucket[]>())
+    const byMonth = byYear.get(year)!
     if (!byMonth.has(month)) byMonth.set(month, [])
-    byMonth.get(month).push({ day, date, count })
+    byMonth.get(month)!.push({ day, date, count })
   }
-  const years = []
+  const years: YearBucket[] = []
   for (const [year, byMonth] of byYear) {
-    const months = []
+    const months: MonthBucket[] = []
     for (const [month, days] of byMonth) {
       days.sort((a, b) => b.day.localeCompare(a.day))
       months.push({ month, days })
@@ -585,26 +639,29 @@ const dateTree = computed(() => {
   return years
 })
 
-const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-function monthName(mm) {
+const MONTH_NAMES = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+]
+function monthName(mm: string): string {
   return MONTH_NAMES[parseInt(mm) - 1] || mm
 }
 
-function toggleYear(year) {
+function toggleYear(year: string): void {
   const next = new Set(expandedYears.value)
   if (next.has(year)) next.delete(year)
   else next.add(year)
   expandedYears.value = next
 }
 
-function toggleMonth(yearMonth) {
+function toggleMonth(yearMonth: string): void {
   const next = new Set(expandedMonths.value)
   if (next.has(yearMonth)) next.delete(yearMonth)
   else next.add(yearMonth)
   expandedMonths.value = next
 }
 
-function selectDay(date) {
+function selectDay(date: string): void {
   selectedDay.value = date
   selectedMonth.value = null
   store.dateFrom = date
@@ -612,9 +669,7 @@ function selectDay(date) {
   store.fetchImages(true)
 }
 
-function selectMonth(year, month) {
-  // Date(year, month, 0) → last day of (month-1) in 0-indexed terms,
-  // which equals the last day of `month` in our 1-indexed input.
+function selectMonth(year: string, month: string): void {
   const lastDay = new Date(parseInt(year), parseInt(month), 0).getDate()
   selectedMonth.value = `${year}-${month}`
   selectedDay.value = null
@@ -623,7 +678,7 @@ function selectMonth(year, month) {
   store.fetchImages(true)
 }
 
-function clearDateFilter() {
+function clearDateFilter(): void {
   selectedDay.value = null
   selectedMonth.value = null
   store.dateFrom = ''
@@ -631,48 +686,42 @@ function clearDateFilter() {
   store.fetchImages(true)
 }
 
-function toggleTagFilter(tagName) {
+function toggleTagFilter(tagName: string): void {
   const idx = store.selectedTags.indexOf(tagName)
   if (idx === -1) store.selectedTags.push(tagName)
   else store.selectedTags.splice(idx, 1)
   store.fetchImages(true)
 }
 
-// Project filtering rides on the same selectedTags pipeline — `project:<slug>`
-// already includes descendants thanks to the recursive tag-descendant CTE in
-// the backend, so a single tag filter covers the whole project subtree.
-function projectTagName(slug) {
+function projectTagName(slug: string): string {
   return `project:${slug}`
 }
 
-function isTagSelected(tagName) {
+function isTagSelected(tagName: string): boolean {
   return store.selectedTags.includes(tagName)
 }
 
-function clearProjectFilters() {
+function clearProjectFilters(): void {
   store.selectedTags = store.selectedTags.filter((t) => !t.startsWith('project:'))
   store.fetchImages(true)
 }
 
-function toggleProjectExpand(key) {
+function toggleProjectExpand(key: string): void {
   const next = new Set(expandedProjects.value)
   if (next.has(key)) next.delete(key)
   else next.add(key)
   expandedProjects.value = next
 }
 
-const selectedProjectSlugs = computed(() =>
+const selectedProjectSlugs = computed<string[]>(() =>
   store.selectedTags
     .filter((t) => t.startsWith('project:'))
     .map((t) => t.split(':')[1])
     .filter(Boolean),
 )
 
-// Per-project role buckets derived from `project:<slug>:<role>:<value>` tags.
-// Role tags themselves don't exist as separate rows in the DB — only the
-// leaf role:value tags do — so role nodes are virtual headers built here.
-const projectRolesBySlug = computed(() => {
-  const out = new Map()
+const projectRolesBySlug = computed<Map<string, Map<string, RoleValue[]>>>(() => {
+  const out = new Map<string, Map<string, RoleValue[]>>()
   for (const tag of store.allTags) {
     if (!tag.name.startsWith('project:')) continue
     const parts = tag.name.split(':')
@@ -680,10 +729,14 @@ const projectRolesBySlug = computed(() => {
     const slug = parts[1]
     const role = parts[2]
     const value = parts.slice(3).join(':')
-    if (!out.has(slug)) out.set(slug, new Map())
-    const roles = out.get(slug)
+    if (!out.has(slug)) out.set(slug, new Map<string, RoleValue[]>())
+    const roles = out.get(slug)!
     if (!roles.has(role)) roles.set(role, [])
-    roles.get(role).push({ tagName: tag.name, label: value, image_count: tag.image_count || 0 })
+    roles.get(role)!.push({
+      tagName: tag.name,
+      label: value,
+      image_count: tag.image_count || 0,
+    })
   }
   for (const roles of out.values()) {
     for (const arr of roles.values()) arr.sort((a, b) => b.image_count - a.image_count)
@@ -691,21 +744,22 @@ const projectRolesBySlug = computed(() => {
   return out
 })
 
-// Build project tree from parent_slug. A project whose parent_slug isn't
-// present in the project list is treated as a root so nothing gets dropped.
-const projectTree = computed(() => {
+const projectTree = computed<ProjectTreeNode[]>(() => {
   const projects = projectsStore.projects
-  const bySlug = new Map(projects.map((p) => [p.slug, { ...p, children: [] }]))
-  const roots = []
+  const bySlug = new Map<string, ProjectTreeNode>(
+    projects.map((p) => [p.slug, { ...p, children: [] as ProjectTreeNode[] }]),
+  )
+  const roots: ProjectTreeNode[] = []
   for (const node of bySlug.values()) {
     if (node.parent_slug && bySlug.has(node.parent_slug)) {
-      bySlug.get(node.parent_slug).children.push(node)
+      bySlug.get(node.parent_slug)!.children.push(node)
     } else {
       roots.push(node)
     }
   }
-  const sortFn = (a, b) => a.name.localeCompare(b.name)
-  const sortAll = (nodes) => {
+  const sortFn = (a: ProjectTreeNode, b: ProjectTreeNode) =>
+    a.name.localeCompare(b.name)
+  const sortAll = (nodes: ProjectTreeNode[]): void => {
     nodes.sort(sortFn)
     for (const n of nodes) sortAll(n.children)
   }
@@ -713,20 +767,20 @@ const projectTree = computed(() => {
   return roots
 })
 
-// Auto-expand ancestors of any selected project so the active filter stays
-// visible even after the projects list refreshes.
-const projectAncestors = computed(() => {
-  const bySlug = new Map(projectsStore.projects.map((p) => [p.slug, p]))
-  const ancestors = (slug) => {
-    const out = []
-    let cursor = bySlug.get(slug)
+const projectAncestors = computed<Set<string>>(() => {
+  const bySlug = new Map<string, ProjectInfo>(
+    projectsStore.projects.map((p) => [p.slug, p]),
+  )
+  const ancestors = (slug: string): string[] => {
+    const out: string[] = []
+    let cursor: ProjectInfo | undefined = bySlug.get(slug)
     while (cursor && cursor.parent_slug) {
       out.push(cursor.parent_slug)
       cursor = bySlug.get(cursor.parent_slug)
     }
     return out
   }
-  const set = new Set()
+  const set = new Set<string>()
   for (const slug of selectedProjectSlugs.value) {
     for (const a of ancestors(slug)) set.add(a)
   }
@@ -738,18 +792,18 @@ const projectAncestors = computed(() => {
 //   kind === 'project' → top/sub-project, click filters by `project:<slug>`
 //   kind === 'role'    → virtual header (no real tag), expand only
 //   kind === 'value'   → leaf, click filters by full `project:<slug>:<role>:<value>` tag
-const projectTreeFlat = computed(() => {
-  const out = []
+const projectTreeFlat = computed<ProjectRow[]>(() => {
+  const out: ProjectRow[] = []
   const expanded = expandedProjects.value
   const forced = projectAncestors.value
   const rolesBySlug = projectRolesBySlug.value
 
-  const walk = (nodes, depth) => {
+  const walk = (nodes: ProjectTreeNode[], depth: number): void => {
     for (const n of nodes) {
       const projectKey = `p:${n.slug}`
       const roles = rolesBySlug.get(n.slug)
       const hasSubProjects = n.children.length > 0
-      const hasRoles = roles && roles.size > 0
+      const hasRoles = !!roles && roles.size > 0
       const hasChildren = hasSubProjects || hasRoles
       const isExpanded = expanded.has(projectKey) || forced.has(n.slug)
 
@@ -768,7 +822,7 @@ const projectTreeFlat = computed(() => {
 
       if (hasSubProjects) walk(n.children, depth + 1)
 
-      if (hasRoles) {
+      if (hasRoles && roles) {
         for (const [roleName, values] of roles) {
           const roleKey = `r:${n.slug}:${roleName}`
           const roleExpanded = expanded.has(roleKey)
@@ -801,15 +855,15 @@ const projectTreeFlat = computed(() => {
   return out
 })
 
-async function doBulkTag() {
+async function doBulkTag(): Promise<void> {
   const tags = bulkTagInput.value.split(',').map((t) => t.trim()).filter(Boolean)
   if (!tags.length) return
   await store.bulkTag(tags)
   bulkTagInput.value = ''
 }
 
-const selectedImagesTags = computed(() => {
-  const names = new Set()
+const selectedImagesTags = computed<string[]>(() => {
+  const names = new Set<string>()
   for (const img of store.images) {
     if (store.selectedImageIds.includes(img.id)) {
       for (const tag of img.tags) names.add(tag.name)
@@ -818,7 +872,7 @@ const selectedImagesTags = computed(() => {
   return [...names].sort()
 })
 
-async function doBulkRemoveTag() {
+async function doBulkRemoveTag(): Promise<void> {
   const tag = bulkRemoveTagInput.value
   if (!tag) return
   const n = store.selectedImageIds.length
@@ -827,18 +881,20 @@ async function doBulkRemoveTag() {
   bulkRemoveTagInput.value = ''
 }
 
-async function doBulkThumbsDown() {
+async function doBulkThumbsDown(): Promise<void> {
   const n = store.selectedImageIds.length
   if (!confirm(`Mark ${n} image${n !== 1 ? 's' : ''} as thumbs-down? They will be hidden.`)) return
   await store.bulkRate(-1)
   store.clearSelection()
 }
 
-// Flat list with a dateLabel set on the first image of each new date run, so
-// the grid flows continuously and dates render as headers above the boundary
-// image rather than forcing a row break.
-const imagesWithDateLabels = computed(() => {
-  let lastDate = null
+interface ImageWithDateLabel {
+  img: Image
+  dateLabel: string | null
+}
+
+const imagesWithDateLabels = computed<ImageWithDateLabel[]>(() => {
+  let lastDate: string | null = null
   return store.images.map((img) => {
     const date = img.date_taken ? img.date_taken.split('T')[0] : 'Unknown Date'
     const showLabel = date !== lastDate
@@ -847,7 +903,7 @@ const imagesWithDateLabels = computed(() => {
   })
 })
 
-function formatDate(dateStr) {
+function formatDate(dateStr: string): string {
   if (dateStr === 'Unknown Date') return dateStr
   try {
     return new Date(dateStr + 'T00:00:00').toLocaleDateString(undefined, {

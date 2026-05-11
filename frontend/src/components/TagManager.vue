@@ -43,38 +43,49 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { useImagesStore } from '../stores/images.js'
+import { useImagesStore } from '../stores/images'
+import type { Tag } from '../types/api'
 
-const props = defineProps({
-  imageId: { type: Number, required: true },
-  tags: { type: Array, default: () => [] },
-})
+const props = withDefaults(
+  defineProps<{
+    imageId: number
+    tags?: Tag[]
+  }>(),
+  { tags: () => [] },
+)
 
-const emit = defineEmits(['updated'])
+const emit = defineEmits<{
+  (e: 'updated'): void
+}>()
+
 const store = useImagesStore()
 const newTagInput = ref('')
 const showSuggestions = ref(false)
-const localTags = ref([...props.tags])
+const localTags = ref<Tag[]>([...props.tags])
 
 watch(
   () => props.tags,
-  (v) => { localTags.value = [...v] }
+  (v) => {
+    localTags.value = [...v]
+  },
 )
 
-const filteredSuggestions = computed(() => {
+const filteredSuggestions = computed<Tag[]>(() => {
   const q = newTagInput.value.toLowerCase().trim()
   if (!q) return []
-  return store.allTags.filter(
-    (t) =>
-      !t.name.startsWith('project:') &&
-      t.name.includes(q) &&
-      !localTags.value.find((lt) => lt.name === t.name)
-  ).slice(0, 10)
+  return store.allTags
+    .filter(
+      (t) =>
+        !t.name.startsWith('project:') &&
+        t.name.includes(q) &&
+        !localTags.value.find((lt) => lt.name === t.name),
+    )
+    .slice(0, 10)
 })
 
-async function addTags() {
+async function addTags(): Promise<void> {
   const raw = newTagInput.value.split(',').map((t) => t.trim()).filter(Boolean)
   if (!raw.length) return
   newTagInput.value = ''
@@ -83,19 +94,21 @@ async function addTags() {
   emit('updated')
 }
 
-async function removeTag(tagName) {
+async function removeTag(tagName: string): Promise<void> {
   await store.removeTag(props.imageId, tagName)
   localTags.value = localTags.value.filter((t) => t.name !== tagName)
   emit('updated')
 }
 
-function selectSuggestion(name) {
+function selectSuggestion(name: string): void {
   newTagInput.value = name
   showSuggestions.value = false
   addTags()
 }
 
-function hideSuggestions() {
-  setTimeout(() => { showSuggestions.value = false }, 150)
+function hideSuggestions(): void {
+  setTimeout(() => {
+    showSuggestions.value = false
+  }, 150)
 }
 </script>

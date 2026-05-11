@@ -61,59 +61,74 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
-import { useProjectsStore } from '../stores/projects.js'
+import { useProjectsStore } from '../stores/projects'
 import RolesEditor from './RolesEditor.vue'
+import type { ProjectInfo } from '../types/api'
 
-const props = defineProps({
-  imageIds: { type: Array, required: true },
-})
+type RoleMap = Record<string, string[]>
 
-const emit = defineEmits(['close', 'assigned'])
+const props = defineProps<{
+  imageIds: number[]
+}>()
+
+const emit = defineEmits<{
+  (e: 'close'): void
+  (e: 'assigned'): void
+}>()
 
 const projectsStore = useProjectsStore()
 const projectInput = ref('')
-const rolesPayload = ref({})
+const rolesPayload = ref<RoleMap>({})
 const saving = ref(false)
 const showSuggestions = ref(false)
 const activeSuggestion = ref(-1)
 
 onMounted(() => projectsStore.fetchProjects())
 
-const filteredSuggestions = computed(() => {
+const filteredSuggestions = computed<ProjectInfo[]>(() => {
   if (!projectInput.value.trim()) return projectsStore.projects
   const q = projectInput.value.toLowerCase()
-  return projectsStore.projects.filter((p) => p.slug.includes(q) || p.name.toLowerCase().includes(q))
+  return projectsStore.projects.filter(
+    (p) => p.slug.includes(q) || p.name.toLowerCase().includes(q),
+  )
 })
 
-function moveSuggestion(dir) {
+function moveSuggestion(dir: number): void {
   const len = filteredSuggestions.value.length
   if (!len) return
   activeSuggestion.value = (activeSuggestion.value + dir + len) % len
 }
 
-function selectSuggestion(s) {
+function selectSuggestion(s?: ProjectInfo): void {
   const pick = s || filteredSuggestions.value[activeSuggestion.value]
   if (pick) projectInput.value = pick.name
   showSuggestions.value = false
   activeSuggestion.value = -1
 }
 
-function slugify(s) {
-  return (s || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+function slugify(s: string): string {
+  return (s || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
 }
 
-async function assign() {
+async function assign(): Promise<void> {
   const name = projectInput.value.trim()
   if (!name || !props.imageIds.length) return
   saving.value = true
   try {
     await Promise.all(
       props.imageIds.map((id) =>
-        axios.post(`/api/images/${id}/project`, { project: name, roles: rolesPayload.value })
-      )
+        axios.post(`/api/images/${id}/project`, {
+          project: name,
+          roles: rolesPayload.value,
+        }),
+      ),
     )
     await projectsStore.fetchProjects()
     emit('assigned')
