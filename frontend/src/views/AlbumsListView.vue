@@ -38,18 +38,19 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useAlbumsStore } from '../stores/albums'
 import ProjectNode from '../components/ProjectNode.vue'
+import type { AlbumInfo, AlbumSyncStats } from '../types/api'
 
 const store = useAlbumsStore()
-const syncResult = ref(null)
+const syncResult = ref<AlbumSyncStats | null>(null)
 
 onMounted(() => store.fetchAlbums())
 
-const childrenByParent = computed(() => {
-  const map = {}
+const childrenByParent = computed<Record<string, AlbumInfo[]>>(() => {
+  const map: Record<string, AlbumInfo[]> = {}
   for (const a of store.albums) {
     const key = a.parent_slug || ''
     if (!map[key]) map[key] = []
@@ -59,9 +60,9 @@ const childrenByParent = computed(() => {
   return map
 })
 
-const roots = computed(() => childrenByParent.value[''] || [])
+const roots = computed<AlbumInfo[]>(() => childrenByParent.value[''] || [])
 
-async function onSync() {
+async function onSync(): Promise<void> {
   syncResult.value = null
   try {
     syncResult.value = await store.sync()

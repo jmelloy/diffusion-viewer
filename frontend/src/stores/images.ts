@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import axios from 'axios'
 import type {
+  DateBucket,
   Image,
   ImageListResponse,
   ScanResult,
@@ -29,7 +30,7 @@ interface ImagesState {
   sortDir: SortDir
   selectedImageIds: number[]
   allTags: Tag[]
-  availableDates: string[]
+  availableDates: DateBucket[]
 }
 
 interface ListParams {
@@ -194,7 +195,7 @@ export const useImagesStore = defineStore('images', {
     },
 
     async fetchDates(): Promise<void> {
-      const res = await axios.get<string[]>('/api/images/dates')
+      const res = await axios.get<DateBucket[]>('/api/images/dates')
       this.availableDates = res.data
     },
 

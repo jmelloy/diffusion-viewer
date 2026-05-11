@@ -105,6 +105,11 @@ export interface ScanResult {
   album_photos_linked?: number
 }
 
+export interface DateBucket {
+  date: string
+  count: number
+}
+
 // --- Filtering / sort -----------------------------------------------------
 
 export type SortBy = 'date_taken' | 'created_at' | 'updated_at' | 'rating' | 'filename'

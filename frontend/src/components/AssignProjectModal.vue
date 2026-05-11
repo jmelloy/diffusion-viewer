@@ -77,21 +77,30 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useProjectsStore } from '../stores/projects'
 import RolesEditor from './RolesEditor.vue'
+import type { Image, ProjectInfo, Tag } from '../types/api'
 
-const props = defineProps({
-  imageId: { type: Number, required: true },
-  imageTags: { type: Array, default: () => [] },
-})
+type RoleMap = Record<string, string[]>
 
-const emit = defineEmits(['close', 'assigned'])
+const props = withDefaults(
+  defineProps<{
+    imageId: number
+    imageTags?: Tag[]
+  }>(),
+  { imageTags: () => [] },
+)
+
+const emit = defineEmits<{
+  (e: 'close'): void
+  (e: 'assigned', image?: Image): void
+}>()
 
 const projectsStore = useProjectsStore()
 const projectInput = ref('')
-const rolesPayload = ref({})
+const rolesPayload = ref<RoleMap>({})
 const saving = ref(false)
 const showSuggestions = ref(false)
 const activeSuggestion = ref(-1)
@@ -100,8 +109,8 @@ onMounted(() => {
   projectsStore.fetchProjects()
 })
 
-const currentProjects = computed(() => {
-  const slugs = new Set()
+const currentProjects = computed<string[]>(() => {
+  const slugs = new Set<string>()
   for (const tag of props.imageTags) {
     const parts = tag.name.split(':')
     if (parts.length >= 2 && parts[0] === 'project') {
@@ -111,44 +120,50 @@ const currentProjects = computed(() => {
   return [...slugs]
 })
 
-const filteredSuggestions = computed(() => {
+const filteredSuggestions = computed<ProjectInfo[]>(() => {
   if (!projectInput.value.trim()) return projectsStore.projects
   const q = projectInput.value.toLowerCase()
   return projectsStore.projects.filter(
-    (p) => p.slug.includes(q) || p.name.toLowerCase().includes(q)
+    (p) => p.slug.includes(q) || p.name.toLowerCase().includes(q),
   )
 })
 
-function onProjectInput() {
+function onProjectInput(): void {
   showSuggestions.value = true
   activeSuggestion.value = -1
 }
 
-function moveSuggestion(dir) {
+function moveSuggestion(dir: number): void {
   const len = filteredSuggestions.value.length
   if (!len) return
   activeSuggestion.value = (activeSuggestion.value + dir + len) % len
 }
 
-function selectSuggestion(s) {
+function selectSuggestion(s?: ProjectInfo): void {
   const pick = s || filteredSuggestions.value[activeSuggestion.value]
   if (pick) projectInput.value = pick.name
   showSuggestions.value = false
   activeSuggestion.value = -1
 }
 
-// Mirrors backend normalize_slug so RolesEditor (which fetches by slug) and
-// future slug-only callers stay aligned with the user-typed name.
-function slugify(s) {
-  return (s || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+function slugify(s: string): string {
+  return (s || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
 }
 
-async function assign() {
+async function assign(): Promise<void> {
   const name = projectInput.value.trim()
   if (!name) return
   saving.value = true
   try {
-    const updated = await projectsStore.assignProject(props.imageId, name, rolesPayload.value)
+    const updated = await projectsStore.assignProject(
+      props.imageId,
+      name,
+      rolesPayload.value,
+    )
     emit('assigned', updated)
     emit('close')
   } catch (e) {
@@ -158,7 +173,7 @@ async function assign() {
   }
 }
 
-async function removeFromProject(slug) {
+async function removeFromProject(slug: string): Promise<void> {
   if (!confirm(`Remove image from project "${slug}"?`)) return
   await projectsStore.removeProject(props.imageId, slug)
   emit('assigned')

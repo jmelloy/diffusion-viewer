@@ -68,8 +68,9 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref } from 'vue'
+import axios, { AxiosError } from 'axios'
 import SearchBar from './components/SearchBar.vue'
 import { useImagesStore } from './stores/images'
 
@@ -80,7 +81,7 @@ const scanning = ref(false)
 const scanResult = ref('')
 const scanError = ref(false)
 
-async function doScan() {
+async function doScan(): Promise<void> {
   if (!scanDirectory.value.trim()) return
   scanning.value = true
   scanResult.value = ''
@@ -91,7 +92,9 @@ async function doScan() {
     scanResult.value = `✅ Scanned: ${result.scanned}, Added: ${result.added}, Updated: ${result.updated}, Sidecars: ${sidecars}`
   } catch (e) {
     scanError.value = true
-    scanResult.value = '❌ ' + (e.response?.data?.detail || e.message)
+    const detail =
+      axios.isAxiosError(e) && (e as AxiosError<{ detail?: string }>).response?.data?.detail
+    scanResult.value = '❌ ' + (detail || (e as Error).message)
   } finally {
     scanning.value = false
   }

@@ -26,16 +26,16 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { useImagesStore } from '../stores/images'
 
 const store = useImagesStore()
 
-function search() {
+function search(): void {
   store.fetchImages(true)
 }
 
-function clearFilters() {
+function clearFilters(): void {
   store.searchQuery = ''
   store.selectedTags = []
   store.dateFrom = ''

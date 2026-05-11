@@ -46,24 +46,39 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import axios from 'axios'
+import type { ProjectDetail } from '../types/api'
 
-const props = defineProps({
-  modelValue: { type: Object, default: () => ({}) },
-  projectSlug: { type: String, default: '' },
-})
-const emit = defineEmits(['update:modelValue'])
+type RoleMap = Record<string, string[]>
+interface Row {
+  role: string
+  value: string
+}
+
+const props = withDefaults(
+  defineProps<{
+    modelValue?: RoleMap
+    projectSlug?: string
+  }>(),
+  {
+    modelValue: () => ({}),
+    projectSlug: '',
+  },
+)
+
+const emit = defineEmits<{
+  (e: 'update:modelValue', value: RoleMap): void
+}>()
 
 const uid = Math.random().toString(36).slice(2, 9)
-const rows = ref([])
-const projectShape = ref({}) // { role: [value, ...] }
+const rows = ref<Row[]>([])
+const projectShape = ref<Record<string, string[]>>({})
 
-const availableRoles = computed(() => Object.keys(projectShape.value))
+const availableRoles = computed<string[]>(() => Object.keys(projectShape.value))
 
-// Hydrate rows from modelValue on mount
-function hydrate(value) {
+function hydrate(value: RoleMap | undefined): void {
   rows.value = []
   for (const [role, values] of Object.entries(value || {})) {
     for (const v of values) rows.value.push({ role, value: v })
@@ -72,11 +87,10 @@ function hydrate(value) {
 }
 hydrate(props.modelValue)
 
-// Emit normalized object whenever rows change
 watch(
   rows,
   (curr) => {
-    const out = {}
+    const out: RoleMap = {}
     for (const { role, value } of curr) {
       const r = role.trim().toLowerCase()
       const v = value.trim().toLowerCase()
@@ -89,21 +103,20 @@ watch(
   { deep: true },
 )
 
-// Fetch the project's existing role/value shape for autocomplete
-async function loadShape(slug) {
+async function loadShape(slug: string): Promise<void> {
   if (!slug) {
     projectShape.value = {}
     return
   }
   try {
-    const res = await axios.get(`/api/projects/${slug}`)
-    const shape = {}
+    const res = await axios.get<ProjectDetail>(`/api/projects/${slug}`)
+    const shape: Record<string, string[]> = {}
     for (const [role, values] of Object.entries(res.data.roles || {})) {
       if (!role) continue
       shape[role] = Object.keys(values).filter(Boolean)
     }
     projectShape.value = shape
-  } catch (_) {
+  } catch {
     projectShape.value = {}
   }
 }

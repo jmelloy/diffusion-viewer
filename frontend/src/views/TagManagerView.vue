@@ -228,49 +228,62 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import axios from 'axios'
+import axios, { AxiosError } from 'axios'
 import { useImagesStore } from '../stores/images'
+import type { Tag } from '../types/api'
+
+type SortKey = 'count_desc' | 'count_asc' | 'name' | 'parent'
 
 const store = useImagesStore()
 
 const filterQuery = ref('')
-const sortKey = ref('count_desc')
-const busyId = ref(null)
+const sortKey = ref<SortKey>('count_desc')
+const busyId = ref<number | null>(null)
 const message = ref('')
 const messageError = ref(false)
 const recomputing = ref(false)
-const mergeTargets = reactive({})
+const mergeTargets = reactive<Record<number, number | string>>({})
 
-const selectedIds = ref(new Set())
+const selectedIds = ref<Set<number>>(new Set())
 const bulkBusy = ref(false)
-const bulkParentId = ref('')
-const bulkMergeTargetId = ref('')
+const bulkParentId = ref<string>('')
+const bulkMergeTargetId = ref<string>('')
+
+function errMessage(e: unknown): string {
+  if (axios.isAxiosError(e)) {
+    const detail = (e as AxiosError<{ detail?: string }>).response?.data?.detail
+    if (detail) return detail
+  }
+  return (e as Error)?.message ?? 'Unknown error'
+}
 
 onMounted(() => {
   if (!store.allTags.length) store.fetchAllTags()
 })
 
-function setMessage(text, isError = false) {
+function setMessage(text: string, isError = false): void {
   message.value = text
   messageError.value = isError
-  if (text) setTimeout(() => { if (message.value === text) message.value = '' }, 4000)
+  if (text) {
+    setTimeout(() => {
+      if (message.value === text) message.value = ''
+    }, 4000)
+  }
 }
 
-const tagsById = computed(() => {
-  const m = new Map()
+const tagsById = computed<Map<number, Tag>>(() => {
+  const m = new Map<number, Tag>()
   for (const t of store.allTags) m.set(t.id, t)
   return m
 })
 
-// Returns the set of descendant tag ids (including the tag itself), used to
-// prevent cycles when picking a parent or merge target.
-function descendantIds(tagId) {
-  const result = new Set([tagId])
-  const stack = [tagId]
+function descendantIds(tagId: number): Set<number> {
+  const result = new Set<number>([tagId])
+  const stack: number[] = [tagId]
   while (stack.length) {
-    const id = stack.pop()
+    const id = stack.pop() as number
     for (const t of store.allTags) {
       if (t.parent_tag_id === id && !result.has(t.id)) {
         result.add(t.id)
@@ -281,7 +294,7 @@ function descendantIds(tagId) {
   return result
 }
 
-const filteredTags = computed(() => {
+const filteredTags = computed<Tag[]>(() => {
   const q = filterQuery.value.trim().toLowerCase()
   let list = store.allTags
   if (q) list = list.filter((t) => t.name.toLowerCase().includes(q))
@@ -312,14 +325,14 @@ const someVisibleSelected = computed(() => {
   return sel > 0 && sel < filteredTags.value.length
 })
 
-function toggleSelect(id) {
+function toggleSelect(id: number): void {
   const next = new Set(selectedIds.value)
   if (next.has(id)) next.delete(id)
   else next.add(id)
   selectedIds.value = next
 }
 
-function toggleSelectAllVisible() {
+function toggleSelectAllVisible(): void {
   const next = new Set(selectedIds.value)
   if (allVisibleSelected.value) {
     for (const t of filteredTags.value) next.delete(t.id)
@@ -329,16 +342,14 @@ function toggleSelectAllVisible() {
   selectedIds.value = next
 }
 
-function clearSelection() {
+function clearSelection(): void {
   selectedIds.value = new Set()
   bulkParentId.value = ''
   bulkMergeTargetId.value = ''
 }
 
-// Parent options for bulk: exclude any selected tag (can't be its own parent)
-// and any descendant of a selected tag (would create a cycle).
-const bulkParentOptions = computed(() => {
-  const blocked = new Set()
+const bulkParentOptions = computed<Tag[]>(() => {
+  const blocked = new Set<number>()
   for (const id of selectedIds.value) {
     for (const d of descendantIds(id)) blocked.add(d)
   }
@@ -348,15 +359,14 @@ const bulkParentOptions = computed(() => {
     .sort((a, b) => a.name.localeCompare(b.name))
 })
 
-// Merge target options: exclude any tag that is selected (can't be source AND target).
-const bulkMergeTargetOptions = computed(() => {
+const bulkMergeTargetOptions = computed<Tag[]>(() => {
   return store.allTags
     .filter((t) => !selectedIds.value.has(t.id))
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name))
 })
 
-function parentOptionsFor(tag) {
+function parentOptionsFor(tag: Tag): Tag[] {
   const blocked = descendantIds(tag.id)
   return store.allTags
     .filter((t) => !blocked.has(t.id))
@@ -364,15 +374,15 @@ function parentOptionsFor(tag) {
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 
-function mergeOptionsFor(tag) {
+function mergeOptionsFor(tag: Tag): Tag[] {
   return store.allTags
     .filter((t) => t.id !== tag.id)
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 
-async function onParentChange(tag, event) {
-  const raw = event.target.value
+async function onParentChange(tag: Tag, event: Event): Promise<void> {
+  const raw = (event.target as HTMLSelectElement).value
   const newParent = raw === '' ? null : Number(raw)
   if (newParent === (tag.parent_tag_id ?? null)) return
   busyId.value = tag.id
@@ -381,13 +391,13 @@ async function onParentChange(tag, event) {
     await store.fetchAllTags()
     setMessage(`Updated parent for "${tag.name}"`)
   } catch (e) {
-    setMessage(e.response?.data?.detail || e.message, true)
+    setMessage(errMessage(e), true)
   } finally {
     busyId.value = null
   }
 }
 
-async function deleteTag(tag) {
+async function deleteTag(tag: Tag): Promise<void> {
   const n = tag.image_count || 0
   const msg = n
     ? `Delete tag "${tag.name}"? It will be removed from ${n} image${n !== 1 ? 's' : ''}.`
@@ -399,18 +409,24 @@ async function deleteTag(tag) {
     await store.fetchAllTags()
     setMessage(`Deleted "${tag.name}"`)
   } catch (e) {
-    setMessage(e.response?.data?.detail || e.message, true)
+    setMessage(errMessage(e), true)
   } finally {
     busyId.value = null
   }
 }
 
-async function mergeTag(tag) {
+async function mergeTag(tag: Tag): Promise<void> {
   const targetId = Number(mergeTargets[tag.id])
   if (!targetId) return
   const target = tagsById.value.get(targetId)
   if (!target) return
-  if (!confirm(`Merge "${tag.name}" into "${target.name}"? "${tag.name}" will be deleted and its images + children moved to "${target.name}".`)) return
+  if (
+    !confirm(
+      `Merge "${tag.name}" into "${target.name}"? "${tag.name}" will be deleted and its images + children moved to "${target.name}".`,
+    )
+  ) {
+    return
+  }
   busyId.value = tag.id
   try {
     await axios.post('/api/tags/merge', {
@@ -421,89 +437,110 @@ async function mergeTag(tag) {
     await store.fetchAllTags()
     setMessage(`Merged "${tag.name}" into "${target.name}"`)
   } catch (e) {
-    setMessage(e.response?.data?.detail || e.message, true)
+    setMessage(errMessage(e), true)
   } finally {
     busyId.value = null
   }
 }
 
-async function bulkDelete() {
+async function bulkDelete(): Promise<void> {
   const ids = [...selectedIds.value]
   if (!ids.length) return
-  const totalImages = ids.reduce((n, id) => n + (tagsById.value.get(id)?.image_count || 0), 0)
+  const totalImages = ids.reduce(
+    (n, id) => n + (tagsById.value.get(id)?.image_count || 0),
+    0,
+  )
   const msg = totalImages
     ? `Delete ${ids.length} tag${ids.length !== 1 ? 's' : ''}? They will be removed from ${totalImages} image association${totalImages !== 1 ? 's' : ''}.`
     : `Delete ${ids.length} tag${ids.length !== 1 ? 's' : ''}?`
   if (!confirm(msg)) return
   bulkBusy.value = true
   try {
-    const res = await axios.post('/api/tags/bulk-delete', { tag_ids: ids })
+    const res = await axios.post<{ deleted: number }>('/api/tags/bulk-delete', {
+      tag_ids: ids,
+    })
     await store.fetchAllTags()
     clearSelection()
     setMessage(`Deleted ${res.data.deleted} tag${res.data.deleted !== 1 ? 's' : ''}`)
   } catch (e) {
-    setMessage(e.response?.data?.detail || e.message, true)
+    setMessage(errMessage(e), true)
   } finally {
     bulkBusy.value = false
   }
 }
 
-async function bulkSetParent() {
+async function bulkSetParent(): Promise<void> {
   const ids = [...selectedIds.value]
   if (!ids.length) return
   const raw = bulkParentId.value
   const parentId = raw === '' ? null : Number(raw)
-  const parentName = parentId === null ? '— none —' : (tagsById.value.get(parentId)?.name ?? `#${parentId}`)
-  if (!confirm(`Set parent of ${ids.length} tag${ids.length !== 1 ? 's' : ''} to "${parentName}"?`)) return
+  const parentName =
+    parentId === null
+      ? '— none —'
+      : (tagsById.value.get(parentId)?.name ?? `#${parentId}`)
+  if (!confirm(`Set parent of ${ids.length} tag${ids.length !== 1 ? 's' : ''} to "${parentName}"?`)) {
+    return
+  }
   bulkBusy.value = true
   try {
-    const res = await axios.post('/api/tags/bulk-parent', {
+    const res = await axios.post<{ updated: number }>('/api/tags/bulk-parent', {
       tag_ids: ids,
       parent_tag_id: parentId,
     })
     await store.fetchAllTags()
     setMessage(`Updated parent on ${res.data.updated} tag${res.data.updated !== 1 ? 's' : ''}`)
   } catch (e) {
-    setMessage(e.response?.data?.detail || e.message, true)
+    setMessage(errMessage(e), true)
   } finally {
     bulkBusy.value = false
   }
 }
 
-async function bulkMerge() {
+async function bulkMerge(): Promise<void> {
   const ids = [...selectedIds.value]
   const targetId = Number(bulkMergeTargetId.value)
   if (!ids.length || !targetId) return
   const target = tagsById.value.get(targetId)
   if (!target) return
-  if (!confirm(`Merge ${ids.length} tag${ids.length !== 1 ? 's' : ''} into "${target.name}"? Selected tags will be deleted and their images + children moved to "${target.name}".`)) return
+  if (
+    !confirm(
+      `Merge ${ids.length} tag${ids.length !== 1 ? 's' : ''} into "${target.name}"? Selected tags will be deleted and their images + children moved to "${target.name}".`,
+    )
+  ) {
+    return
+  }
   bulkBusy.value = true
   try {
-    const res = await axios.post('/api/tags/bulk-merge', {
+    const res = await axios.post<{ merged: number }>('/api/tags/bulk-merge', {
       source_tag_ids: ids,
       target_tag_id: targetId,
     })
     await store.fetchAllTags()
     clearSelection()
-    setMessage(`Merged ${res.data.merged} tag${res.data.merged !== 1 ? 's' : ''} into "${target.name}"`)
+    setMessage(
+      `Merged ${res.data.merged} tag${res.data.merged !== 1 ? 's' : ''} into "${target.name}"`,
+    )
   } catch (e) {
-    setMessage(e.response?.data?.detail || e.message, true)
+    setMessage(errMessage(e), true)
   } finally {
     bulkBusy.value = false
   }
 }
 
-async function recomputeParents() {
+async function recomputeParents(): Promise<void> {
   recomputing.value = true
   try {
-    const res = await axios.post('/api/tags/recompute-parents')
+    const res = await axios.post<{
+      curated_children_parented?: number
+      subsumption_parented?: number
+    }>('/api/tags/recompute-parents')
     await store.fetchAllTags()
     const stats = res.data
     setMessage(
-      `Recomputed: ${stats.curated_children_parented ?? 0} curated, ${stats.subsumption_parented ?? 0} via subsumption`
+      `Recomputed: ${stats.curated_children_parented ?? 0} curated, ${stats.subsumption_parented ?? 0} via subsumption`,
     )
   } catch (e) {
-    setMessage(e.response?.data?.detail || e.message, true)
+    setMessage(errMessage(e), true)
   } finally {
     recomputing.value = false
   }

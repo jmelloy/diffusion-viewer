@@ -148,7 +148,7 @@
   />
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
@@ -156,38 +156,51 @@ import { useImagesStore } from '../stores/images'
 import RatingWidget from '../components/RatingWidget.vue'
 import TagManager from '../components/TagManager.vue'
 import AssignProjectModal from '../components/AssignProjectModal.vue'
+import type { Image } from '../types/api'
+
+interface ProjectChip {
+  slug: string
+  name: string
+  roles: string[]
+}
 
 const route = useRoute()
 const router = useRouter()
 const store = useImagesStore()
-const image = ref(null)
+const image = ref<Image | null>(null)
 const loading = ref(false)
 const showSidecar = ref(false)
 const showProjectModal = ref(false)
 
-const imageProjects = computed(() => {
+const imageProjects = computed<ProjectChip[]>(() => {
   if (!image.value?.tags) return []
-  const projects = {}
+  const projects: Record<string, ProjectChip> = {}
   for (const tag of image.value.tags) {
     const parts = tag.name.split(':')
     if (parts[0] !== 'project') continue
     const slug = parts[1]
     if (!slug) continue
-    if (!projects[slug]) projects[slug] = { slug, name: slug.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()), roles: [] }
+    if (!projects[slug]) {
+      projects[slug] = {
+        slug,
+        name: slug.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+        roles: [],
+      }
+    }
     if (parts[2]) projects[slug].roles.push(parts[2])
   }
   return Object.values(projects)
 })
 
-async function onProjectAssigned(updatedImage) {
+async function onProjectAssigned(updatedImage?: Image): Promise<void> {
   if (updatedImage) image.value = updatedImage
   else await refreshImage()
 }
 
-async function loadImage() {
+async function loadImage(): Promise<void> {
   loading.value = true
   try {
-    const res = await axios.get(`/api/images/${route.params.id}`)
+    const res = await axios.get<Image>(`/api/images/${route.params.id}`)
     image.value = res.data
   } catch {
     image.value = null
@@ -196,45 +209,54 @@ async function loadImage() {
   }
 }
 
-async function refreshImage() {
+async function refreshImage(): Promise<void> {
   await loadImage()
 }
 
 onMounted(loadImage)
 watch(() => route.params.id, loadImage)
 
-async function handleRate(rating) {
+async function handleRate(rating: number): Promise<void> {
+  if (!image.value) return
   await store.rateImage(image.value.id, rating)
   image.value.rating = rating
   image.value.hidden = rating === -1
 }
 
-const currentIndex = computed(() => store.images.findIndex((i) => i.id === image.value?.id))
-const prevId = computed(() => (currentIndex.value > 0 ? store.images[currentIndex.value - 1].id : null))
-const nextId = computed(() =>
-  currentIndex.value < store.images.length - 1 ? store.images[currentIndex.value + 1].id : null
+const currentIndex = computed<number>(() =>
+  store.images.findIndex((i) => i.id === image.value?.id),
+)
+const prevId = computed<number | null>(() =>
+  currentIndex.value > 0 ? store.images[currentIndex.value - 1].id : null,
+)
+const nextId = computed<number | null>(() =>
+  currentIndex.value >= 0 && currentIndex.value < store.images.length - 1
+    ? store.images[currentIndex.value + 1].id
+    : null,
 )
 
-function navigate(dir) {
+function navigate(dir: -1 | 1): void {
   const id = dir === -1 ? prevId.value : nextId.value
   if (id) router.push(`/image/${id}`)
 }
 
-const parsedSidecar = computed(() => {
-  if (!image.value?.sidecar_data) return ''
+const parsedSidecar = computed<string>(() => {
+  const raw = image.value?.sidecar_data
+  if (!raw) return ''
   try {
-    return JSON.stringify(JSON.parse(image.value.sidecar_data), null, 2)
+    return JSON.stringify(JSON.parse(raw), null, 2)
   } catch {
-    return image.value.sidecar_data
+    return raw
   }
 })
 
-function formatDate(dt) {
+function formatDate(dt: string | null | undefined): string {
   if (!dt) return ''
   return new Date(dt).toLocaleString()
 }
 
-function formatSize(bytes) {
+function formatSize(bytes: number | null | undefined): string {
+  if (bytes == null) return ''
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`

@@ -21,16 +21,17 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { onMounted, computed } from 'vue'
 import { useProjectsStore } from '../stores/projects'
 import ProjectNode from '../components/ProjectNode.vue'
+import type { ProjectInfo } from '../types/api'
 
 const store = useProjectsStore()
 onMounted(() => store.fetchProjects())
 
-const childrenByParent = computed(() => {
-  const map = {}
+const childrenByParent = computed<Record<string, ProjectInfo[]>>(() => {
+  const map: Record<string, ProjectInfo[]> = {}
   for (const p of store.projects) {
     const key = p.parent_slug || ''
     if (!map[key]) map[key] = []
@@ -40,5 +41,5 @@ const childrenByParent = computed(() => {
   return map
 })
 
-const roots = computed(() => childrenByParent.value[''] || [])
+const roots = computed<ProjectInfo[]>(() => childrenByParent.value[''] || [])
 </script>

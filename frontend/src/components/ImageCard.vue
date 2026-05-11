@@ -82,29 +82,35 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { useRouter } from 'vue-router'
+import type { Image } from '../types/api'
 
-const props = defineProps({
-  image: { type: Object, required: true },
-  selected: { type: Boolean, default: false },
-})
+const props = withDefaults(
+  defineProps<{
+    image: Image
+    selected?: boolean
+  }>(),
+  { selected: false },
+)
 
-const emit = defineEmits(['toggle-select', 'rate'])
+defineEmits<{
+  (e: 'toggle-select'): void
+  (e: 'rate', rating: number): void
+}>()
+
 const router = useRouter()
 
-function handleClick() {
+function handleClick(): void {
   router.push(`/image/${props.image.id}`)
 }
 
-function onImgError(e) {
-  e.target.src = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Crect width='100' height='100' fill='%23374151'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%236b7280' font-size='12'%3E No Image%3C/text%3E%3C/svg%3E`
+function onImgError(e: Event): void {
+  const target = e.target as HTMLImageElement
+  target.src = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Crect width='100' height='100' fill='%23374151'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%236b7280' font-size='12'%3E No Image%3C/text%3E%3C/svg%3E`
 }
 
-// Project tags can be deeply nested (project:card-game:suit:hearts) and the
-// full string blows out the chip width. Show only the leaf segment; full name
-// stays in the title tooltip for disambiguation.
-function shortTagLabel(name) {
+function shortTagLabel(name: string): string {
   if (!name.startsWith('project:')) return name
   const parts = name.split(':')
   return parts[parts.length - 1]

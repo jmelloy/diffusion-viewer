@@ -24,15 +24,25 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed } from 'vue'
 
-const props = defineProps({
-  node: { type: Object, required: true },
-  childrenByParent: { type: Object, required: true },
-  depth: { type: Number, default: 0 },
-  basePath: { type: String, default: '/projects' },
-})
+interface NodeShape {
+  slug: string
+  name: string
+  image_count: number
+  parent_slug?: string | null
+}
 
-const kids = computed(() => props.childrenByParent[props.node.slug] || [])
+const props = withDefaults(
+  defineProps<{
+    node: NodeShape
+    childrenByParent: Record<string, NodeShape[]>
+    depth?: number
+    basePath?: string
+  }>(),
+  { depth: 0, basePath: '/projects' },
+)
+
+const kids = computed<NodeShape[]>(() => props.childrenByParent[props.node.slug] || [])
 </script>

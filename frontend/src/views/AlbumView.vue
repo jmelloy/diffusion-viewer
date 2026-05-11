@@ -94,26 +94,32 @@
   </div>
 </template>
 
-<script setup>
-import { ref, computed, onMounted, watch, h } from 'vue'
+<script setup lang="ts">
+import { ref, computed, onMounted, watch, h, defineComponent } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import axios from 'axios'
 import { useAlbumsStore } from '../stores/albums'
+import type { AlbumDetail, AlbumRoleInfo, Image } from '../types/api'
+
+interface RoleGroup {
+  role: string
+  values: AlbumRoleInfo[]
+}
 
 const route = useRoute()
 const router = useRouter()
 const store = useAlbumsStore()
-const slug = computed(() => route.params.slug)
-const album = ref(null)
+const slug = computed<string>(() => String(route.params.slug ?? ''))
+const album = ref<AlbumDetail | null>(null)
 const loading = ref(false)
 
 const ROLE_ORDER = [
   'suspect', 'weapon', 'room', 'character', 'scene', 'background', 'prop', 'concept', 'reference',
-]
+] as const
 
-// Group flat roles list into { role: [{id, value}, ...] } for the sidebar.
-const rolesByName = computed(() => {
+const rolesByName = computed<RoleGroup[]>(() => {
   if (!album.value?.roles?.length) return []
-  const grouped = {}
+  const grouped: Record<string, AlbumRoleInfo[]> = {}
   for (const r of album.value.roles) {
     if (!grouped[r.role]) grouped[r.role] = []
     grouped[r.role].push(r)
@@ -122,24 +128,25 @@ const rolesByName = computed(() => {
     arr.sort((a, b) => a.value.localeCompare(b.value))
   }
   const present = Object.keys(grouped)
-  const known = ROLE_ORDER.filter((r) => present.includes(r))
-  const extras = present.filter((r) => !ROLE_ORDER.includes(r)).sort()
+  const known = (ROLE_ORDER as readonly string[]).filter((r) => present.includes(r))
+  const extras = present.filter((r) => !(ROLE_ORDER as readonly string[]).includes(r)).sort()
   return [...known, ...extras].map((role) => ({ role, values: grouped[role] }))
 })
 
-async function loadAlbum() {
+async function loadAlbum(): Promise<void> {
   loading.value = true
   album.value = null
   try {
     album.value = await store.fetchAlbum(slug.value)
   } catch (e) {
-    if (e.response?.status !== 404) console.error('fetchAlbum failed', e)
+    if (axios.isAxiosError(e) && e.response?.status === 404) return
+    console.error('fetchAlbum failed', e)
   } finally {
     loading.value = false
   }
 }
 
-async function onRemoveRole(roleId) {
+async function onRemoveRole(roleId: number): Promise<void> {
   try {
     await store.removeRole(slug.value, roleId)
     await loadAlbum()
@@ -151,28 +158,30 @@ async function onRemoveRole(roleId) {
 onMounted(loadAlbum)
 watch(slug, loadAlbum)
 
-const ImageThumb = {
-  props: ['img'],
+const ImageThumb = defineComponent({
+  props: { img: { type: Object as () => Image, required: true } },
   setup(props) {
-    const onErr = (e) => {
-      e.target.src = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Crect width='100' height='100' fill='%23374151'/%3E%3C/svg%3E`
+    const onErr = (e: Event): void => {
+      const target = e.target as HTMLImageElement
+      target.src = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Crect width='100' height='100' fill='%23374151'/%3E%3C/svg%3E`
     }
-    return () => h(
-      'div',
-      {
-        class: 'group rounded-lg overflow-hidden bg-gray-800 cursor-pointer aspect-square',
-        onClick: () => router.push(`/image/${props.img.id}`),
-      },
-      [
-        h('img', {
-          src: `/api/images/${props.img.id}/thumbnail`,
-          alt: props.img.filename,
-          loading: 'lazy',
-          class: 'w-full h-full object-cover transition-transform duration-200 group-hover:scale-105',
-          onError: onErr,
-        }),
-      ],
-    )
+    return () =>
+      h(
+        'div',
+        {
+          class: 'group rounded-lg overflow-hidden bg-gray-800 cursor-pointer aspect-square',
+          onClick: () => router.push(`/image/${props.img.id}`),
+        },
+        [
+          h('img', {
+            src: `/api/images/${props.img.id}/thumbnail`,
+            alt: props.img.filename,
+            loading: 'lazy',
+            class: 'w-full h-full object-cover transition-transform duration-200 group-hover:scale-105',
+            onError: onErr,
+          }),
+        ],
+      )
   },
-}
+})
 </script>

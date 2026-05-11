@@ -52,25 +52,32 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, watch } from 'vue'
 
-const props = defineProps({
-  imageId: { type: Number, required: true },
-  rating: { type: Number, default: 0 },
-  size: { type: String, default: 'sm' }, // 'sm' | 'lg'
-})
+const props = withDefaults(
+  defineProps<{
+    imageId: number
+    rating?: number
+    size?: 'sm' | 'lg'
+  }>(),
+  { rating: 0, size: 'sm' },
+)
 
-const emit = defineEmits(['rate'])
-const currentRating = ref(props.rating)
+const emit = defineEmits<{
+  (e: 'rate', rating: number): void
+}>()
+
+const currentRating = ref<number>(props.rating)
 
 watch(
   () => props.rating,
-  (v) => { currentRating.value = v }
+  (v) => {
+    currentRating.value = v
+  },
 )
 
-function setRating(r) {
-  // Toggle off if same rating
+function setRating(r: number): void {
   const newRating = currentRating.value === r ? 0 : r
   currentRating.value = newRating
   emit('rate', newRating)
