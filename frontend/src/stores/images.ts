@@ -96,6 +96,14 @@ export const useImagesStore = defineStore('images', {
         this.total = res.data.total
         this.page = res.data.page
         this.pages = res.data.pages
+
+        // After a filter/view reset, drop any selected ids that aren't part of
+        // the new result set — the user can no longer see them, so keeping
+        // them selected silently is confusing.
+        if (resetPage && this.selectedImageIds.length) {
+          const visible = new Set(this.images.map((i) => i.id))
+          this.selectedImageIds = this.selectedImageIds.filter((id) => visible.has(id))
+        }
       } catch (e) {
         console.error('fetchImages failed', e)
       } finally {

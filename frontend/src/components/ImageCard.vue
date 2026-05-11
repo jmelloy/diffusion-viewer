@@ -1,9 +1,13 @@
 <template>
   <div
-    class="relative group rounded-lg overflow-hidden bg-gray-800 cursor-pointer"
+    :class="[
+      'relative group rounded-lg overflow-hidden bg-gray-800 cursor-pointer transition-shadow',
+      selected ? 'ring-2 ring-purple-500' : '',
+      selectionMode && !selected ? 'ring-1 ring-gray-600 hover:ring-purple-400' : '',
+    ]"
     @click.stop="handleClick"
   >
-    <!-- Checkbox -->
+    <!-- Checkbox — always clickable, even outside selection mode -->
     <div class="absolute top-2 left-2 z-10" @click.stop>
       <input
         type="checkbox"
@@ -90,11 +94,12 @@ const props = withDefaults(
   defineProps<{
     image: Image
     selected?: boolean
+    selectionMode?: boolean
   }>(),
-  { selected: false },
+  { selected: false, selectionMode: false },
 )
 
-defineEmits<{
+const emit = defineEmits<{
   (e: 'toggle-select'): void
   (e: 'rate', rating: number): void
 }>()
@@ -102,6 +107,10 @@ defineEmits<{
 const router = useRouter()
 
 function handleClick(): void {
+  if (props.selectionMode) {
+    emit('toggle-select')
+    return
+  }
   router.push(`/image/${props.image.id}`)
 }
 
