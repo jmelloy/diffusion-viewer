@@ -505,9 +505,11 @@ let currentSuggestionAbort: AbortController | null = null
 async function fetchTagSuggestions(ids: number[]): Promise<void> {
   // Cancel any in-flight request before starting a new one
   currentSuggestionAbort?.abort()
+  suggestionError.value = null
   if (!ids.length) {
     currentSuggestionAbort = null
     tagSuggestions.value = []
+    suggestionsLoading.value = false
     return
   }
   currentSuggestionAbort = new AbortController()
@@ -659,6 +661,8 @@ watch(sentinelEl, (el, oldEl) => {
 onBeforeUnmount(() => {
   observer?.disconnect()
   observer = null
+  if (suggestionDebounceTimer) clearTimeout(suggestionDebounceTimer)
+  currentSuggestionAbort?.abort()
 })
 
 async function onBulkAssigned(): Promise<void> {
