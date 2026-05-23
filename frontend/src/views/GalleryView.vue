@@ -242,7 +242,8 @@
             </div>
 
             <!-- Tag suggestions from cluster -->
-            <div v-if="tagSuggestions.length || suggestionsLoading">
+            <div v-if="tagSuggestions.length || suggestionsLoading || suggestionError">
+              <p v-if="suggestionError" class="text-xs text-red-400 mb-1">{{ suggestionError }}</p>
               <p class="text-xs text-gray-400 mb-1">
                 Suggested tags
                 <span v-if="suggestionsLoading" class="text-gray-500">(loading…)</span>
@@ -497,6 +498,7 @@ let observer: IntersectionObserver | null = null
 
 const tagSuggestions = ref<TagSuggestion[]>([])
 const suggestionsLoading = ref(false)
+const suggestionError = ref<string | null>(null)
 let suggestionDebounceTimer: ReturnType<typeof setTimeout> | null = null
 let currentSuggestionAbort: AbortController | null = null
 
@@ -522,12 +524,13 @@ async function fetchTagSuggestions(ids: number[]): Promise<void> {
 }
 
 async function applySuggestion(tag: TagSuggestion): Promise<void> {
+  suggestionError.value = null
   try {
     await store.bulkTag([tag.name])
-    // Refresh suggestions since selected images now have this tag
     await fetchTagSuggestions(store.selectedImageIds)
-  } catch {
-    // bulkTag failed — leave suggestions as-is; don't silently proceed
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Failed to apply tag'
+    suggestionError.value = msg
   }
 }
 
