@@ -8,6 +8,7 @@ import type {
   SortBy,
   SortDir,
   Tag,
+  TagSuggestion,
 } from '../types/api'
 
 // FastAPI's List[str] query params expect repeated keys (tags=a&tags=b),
@@ -205,6 +206,14 @@ export const useImagesStore = defineStore('images', {
     async fetchDates(): Promise<void> {
       const res = await axios.get<DateBucket[]>('/api/images/dates')
       this.availableDates = res.data
+    },
+
+    async fetchTagSuggestions(imageIds: number[], signal?: AbortSignal): Promise<TagSuggestion[]> {
+      if (!imageIds.length) return []
+      const params = new URLSearchParams()
+      for (const id of imageIds) params.append('image_ids', String(id))
+      const res = await axios.get<TagSuggestion[]>(`/api/images/tag-suggestions?${params}`, { signal })
+      return res.data
     },
 
     toggleImageSelection(id: number): void {

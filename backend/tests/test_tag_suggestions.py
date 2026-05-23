@@ -45,8 +45,10 @@ def _make_image(filename: str) -> models.Image:
 def test_empty_image_ids(client):
     c, _ = client
     res = c.get("/api/images/tag-suggestions", params={"image_ids": []})
-    # FastAPI raises 422 when a required Query list is empty/missing
-    assert res.status_code in (200, 422)
+    # Required param with no values → no image_ids in the request → 422
+    assert res.status_code == 422
+    errors = res.json()["detail"]
+    assert any("image_ids" in str(e) for e in errors)
 
 
 def test_unknown_image_ids_returns_empty(client):

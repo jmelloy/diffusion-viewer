@@ -165,20 +165,28 @@ def tag_suggestions(
     if not image_ids:
         return []
 
-    selected_images = db.query(models.Image).filter(models.Image.id.in_(image_ids)).all()
-    if not selected_images:
+    # Verify at least one requested image exists (single count query)
+    image_count = (
+        db.query(func.count(models.Image.id))
+        .filter(models.Image.id.in_(image_ids))
+        .scalar()
+    )
+    if not image_count:
         return []
 
-    # Collect IDs of tags already on any selected image
-    existing_tag_ids: set[int] = set()
-    project_tag_ids: set[int] = set()
-    for img in selected_images:
-        for tag in img.tags:
-            existing_tag_ids.add(tag.id)
-            # Only top-level project tags identify cluster membership
-            parts = tag.name.split(":")
-            if parts[0] == "project" and len(parts) == 2:
-                project_tag_ids.add(tag.id)
+    # Single JOIN query replaces the previous N+1 lazy-load loop
+    tag_rows = (
+        db.query(models.Tag.id, models.Tag.name)
+        .join(models.ImageTag, models.Tag.id == models.ImageTag.tag_id)
+        .filter(models.ImageTag.image_id.in_(image_ids))
+        .distinct()
+        .all()
+    )
+    existing_tag_ids: set[int] = {row.id for row in tag_rows}
+    project_tag_ids: set[int] = {
+        row.id for row in tag_rows
+        if row.name.startswith("project:") and row.name.count(":") == 1
+    }
 
     # Build subquery for cluster-sibling image IDs
     if project_tag_ids:

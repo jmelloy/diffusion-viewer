@@ -429,7 +429,6 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import axios from 'axios'
 import { useImagesStore } from '../stores/images'
 import { useProjectsStore } from '../stores/projects'
 import ImageCard from '../components/ImageCard.vue'
@@ -499,19 +498,23 @@ let observer: IntersectionObserver | null = null
 const tagSuggestions = ref<TagSuggestion[]>([])
 const suggestionsLoading = ref(false)
 let suggestionDebounceTimer: ReturnType<typeof setTimeout> | null = null
+let currentSuggestionAbort: AbortController | null = null
 
 async function fetchTagSuggestions(ids: number[]): Promise<void> {
+  // Cancel any in-flight request before starting a new one
+  currentSuggestionAbort?.abort()
   if (!ids.length) {
+    currentSuggestionAbort = null
     tagSuggestions.value = []
     return
   }
+  currentSuggestionAbort = new AbortController()
   suggestionsLoading.value = true
   try {
-    const params = new URLSearchParams()
-    for (const id of ids) params.append('image_ids', String(id))
-    const res = await axios.get<TagSuggestion[]>(`/api/images/tag-suggestions?${params}`)
-    tagSuggestions.value = res.data
-  } catch {
+    tagSuggestions.value = await store.fetchTagSuggestions(ids, currentSuggestionAbort.signal)
+  } catch (err: unknown) {
+    // Ignore cancellations from rapid selection changes
+    if (err instanceof Error && (err.name === 'CanceledError' || err.name === 'AbortError')) return
     tagSuggestions.value = []
   } finally {
     suggestionsLoading.value = false
@@ -519,9 +522,13 @@ async function fetchTagSuggestions(ids: number[]): Promise<void> {
 }
 
 async function applySuggestion(tag: TagSuggestion): Promise<void> {
-  await store.bulkTag([tag.name])
-  // Refresh suggestions since selected images now have this tag
-  await fetchTagSuggestions(store.selectedImageIds)
+  try {
+    await store.bulkTag([tag.name])
+    // Refresh suggestions since selected images now have this tag
+    await fetchTagSuggestions(store.selectedImageIds)
+  } catch {
+    // bulkTag failed — leave suggestions as-is; don't silently proceed
+  }
 }
 
 const today = new Date()
