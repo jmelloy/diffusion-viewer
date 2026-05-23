@@ -241,6 +241,26 @@
               </button>
             </div>
 
+            <!-- Tag suggestions from cluster -->
+            <div v-if="tagSuggestions.length || suggestionsLoading">
+              <p class="text-xs text-gray-400 mb-1">
+                Suggested tags
+                <span v-if="suggestionsLoading" class="text-gray-500">(loading…)</span>
+              </p>
+              <div class="flex flex-wrap gap-1">
+                <button
+                  v-for="suggestion in tagSuggestions"
+                  :key="suggestion.id"
+                  @click="applySuggestion(suggestion)"
+                  :title="`Appears on ${suggestion.frequency} cluster image${suggestion.frequency !== 1 ? 's' : ''} — click to apply`"
+                  class="px-2 py-0.5 rounded text-xs bg-indigo-800 hover:bg-indigo-600 text-indigo-200 transition-colors"
+                >
+                  {{ suggestion.name }}
+                  <span class="text-indigo-400 ml-0.5">{{ suggestion.frequency }}</span>
+                </button>
+              </div>
+            </div>
+
             <!-- Remove tag -->
             <div v-if="selectedImagesTags.length">
               <select
@@ -409,11 +429,12 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import axios from 'axios'
 import { useImagesStore } from '../stores/images'
 import { useProjectsStore } from '../stores/projects'
 import ImageCard from '../components/ImageCard.vue'
 import BulkProjectModal from '../components/BulkProjectModal.vue'
-import type { Image, ProjectInfo, Tag } from '../types/api'
+import type { Image, ProjectInfo, Tag, TagSuggestion } from '../types/api'
 
 interface TagGroup {
   parent: Tag | null
@@ -474,6 +495,34 @@ const galleryEl = ref<HTMLElement | null>(null)
 const sentinelEl = ref<HTMLElement | null>(null)
 const showBulkProjectModal = ref(false)
 let observer: IntersectionObserver | null = null
+
+const tagSuggestions = ref<TagSuggestion[]>([])
+const suggestionsLoading = ref(false)
+let suggestionDebounceTimer: ReturnType<typeof setTimeout> | null = null
+
+async function fetchTagSuggestions(ids: number[]): Promise<void> {
+  if (!ids.length) {
+    tagSuggestions.value = []
+    return
+  }
+  suggestionsLoading.value = true
+  try {
+    const params = new URLSearchParams()
+    for (const id of ids) params.append('image_ids', String(id))
+    const res = await axios.get<TagSuggestion[]>(`/api/images/tag-suggestions?${params}`)
+    tagSuggestions.value = res.data
+  } catch {
+    tagSuggestions.value = []
+  } finally {
+    suggestionsLoading.value = false
+  }
+}
+
+async function applySuggestion(tag: TagSuggestion): Promise<void> {
+  await store.bulkTag([tag.name])
+  // Refresh suggestions since selected images now have this tag
+  await fetchTagSuggestions(store.selectedImageIds)
+}
 
 const today = new Date()
 const currentYear = today.getFullYear().toString()
@@ -560,6 +609,15 @@ function tagButtonClass(tag: Tag): string[] {
       : 'bg-gray-700 text-gray-300 hover:bg-gray-600',
   ]
 }
+
+watch(
+  () => store.selectedImageIds,
+  (ids) => {
+    if (suggestionDebounceTimer) clearTimeout(suggestionDebounceTimer)
+    suggestionDebounceTimer = setTimeout(() => fetchTagSuggestions([...ids]), 300)
+  },
+  { deep: true },
+)
 
 onMounted(() => {
   observer = new IntersectionObserver(

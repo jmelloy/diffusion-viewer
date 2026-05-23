@@ -104,6 +104,12 @@ class BulkRatingRequest(BaseModel):
     rating: int
 
 
+class TagSuggestion(BaseModel):
+    id: int
+    name: str
+    frequency: int
+
+
 class TagsAddRequest(BaseModel):
     tag_names: List[str]
 
