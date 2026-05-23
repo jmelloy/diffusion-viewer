@@ -241,6 +241,27 @@
               </button>
             </div>
 
+            <!-- Tag suggestions from cluster -->
+            <div v-if="tagSuggestions.length || suggestionsLoading || suggestionError">
+              <p v-if="suggestionError" class="text-xs text-red-400 mb-1">{{ suggestionError }}</p>
+              <p class="text-xs text-gray-400 mb-1">
+                Suggested tags
+                <span v-if="suggestionsLoading" class="text-gray-500">(loading…)</span>
+              </p>
+              <div class="flex flex-wrap gap-1">
+                <button
+                  v-for="suggestion in tagSuggestions"
+                  :key="suggestion.id"
+                  @click="applySuggestion(suggestion)"
+                  :title="`Appears on ${suggestion.frequency} cluster image${suggestion.frequency !== 1 ? 's' : ''} — click to apply`"
+                  class="px-2 py-0.5 rounded text-xs bg-indigo-800 hover:bg-indigo-600 text-indigo-200 transition-colors"
+                >
+                  {{ suggestion.name }}
+                  <span class="text-indigo-400 ml-0.5">{{ suggestion.frequency }}</span>
+                </button>
+              </div>
+            </div>
+
             <!-- Remove tag -->
             <div v-if="selectedImagesTags.length">
               <select
@@ -413,7 +434,7 @@ import { useImagesStore } from '../stores/images'
 import { useProjectsStore } from '../stores/projects'
 import ImageCard from '../components/ImageCard.vue'
 import BulkProjectModal from '../components/BulkProjectModal.vue'
-import type { Image, ProjectInfo, Tag } from '../types/api'
+import type { Image, ProjectInfo, Tag, TagSuggestion } from '../types/api'
 
 interface TagGroup {
   parent: Tag | null
@@ -474,6 +495,44 @@ const galleryEl = ref<HTMLElement | null>(null)
 const sentinelEl = ref<HTMLElement | null>(null)
 const showBulkProjectModal = ref(false)
 let observer: IntersectionObserver | null = null
+
+const tagSuggestions = ref<TagSuggestion[]>([])
+const suggestionsLoading = ref(false)
+const suggestionError = ref<string | null>(null)
+let suggestionDebounceTimer: ReturnType<typeof setTimeout> | null = null
+let currentSuggestionAbort: AbortController | null = null
+
+async function fetchTagSuggestions(ids: number[]): Promise<void> {
+  // Cancel any in-flight request before starting a new one
+  currentSuggestionAbort?.abort()
+  if (!ids.length) {
+    currentSuggestionAbort = null
+    tagSuggestions.value = []
+    return
+  }
+  currentSuggestionAbort = new AbortController()
+  suggestionsLoading.value = true
+  try {
+    tagSuggestions.value = await store.fetchTagSuggestions(ids, currentSuggestionAbort.signal)
+  } catch (err: unknown) {
+    // Ignore cancellations from rapid selection changes
+    if (err instanceof Error && (err.name === 'CanceledError' || err.name === 'AbortError')) return
+    tagSuggestions.value = []
+  } finally {
+    suggestionsLoading.value = false
+  }
+}
+
+async function applySuggestion(tag: TagSuggestion): Promise<void> {
+  suggestionError.value = null
+  try {
+    await store.bulkTag([tag.name])
+    await fetchTagSuggestions(store.selectedImageIds)
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Failed to apply tag'
+    suggestionError.value = msg
+  }
+}
 
 const today = new Date()
 const currentYear = today.getFullYear().toString()
@@ -560,6 +619,15 @@ function tagButtonClass(tag: Tag): string[] {
       : 'bg-gray-700 text-gray-300 hover:bg-gray-600',
   ]
 }
+
+watch(
+  () => store.selectedImageIds,
+  (ids) => {
+    if (suggestionDebounceTimer) clearTimeout(suggestionDebounceTimer)
+    suggestionDebounceTimer = setTimeout(() => fetchTagSuggestions([...ids]), 300)
+  },
+  { deep: true },
+)
 
 onMounted(() => {
   observer = new IntersectionObserver(

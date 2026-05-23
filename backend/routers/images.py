@@ -149,6 +149,84 @@ def get_dates(db: Session = Depends(get_db)):
     return [{"date": str(row.date), "count": row.count} for row in results]
 
 
+@router.get("/tag-suggestions", response_model=list[schemas.TagSuggestion])
+def tag_suggestions(
+    image_ids: List[int] = Query(...),
+    limit: int = Query(10, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    """Return ranked tag suggestions for the given image IDs based on cluster membership.
+
+    For each selected image, the cluster is identified by its top-level project:* tags.
+    Tags from other images in those clusters are ranked by frequency and returned,
+    excluding tags already present on any selected image and project:* tags themselves.
+    Falls back to globally frequent tags when no cluster tags exist.
+    """
+    if not image_ids:
+        return []
+
+    # Verify at least one requested image exists (single count query)
+    image_count = (
+        db.query(func.count(models.Image.id))
+        .filter(models.Image.id.in_(image_ids))
+        .scalar()
+    )
+    if not image_count:
+        return []
+
+    # Single JOIN query replaces the previous N+1 lazy-load loop
+    tag_rows = (
+        db.query(models.Tag.id, models.Tag.name)
+        .join(models.ImageTag, models.Tag.id == models.ImageTag.tag_id)
+        .filter(models.ImageTag.image_id.in_(image_ids))
+        .distinct()
+        .all()
+    )
+    existing_tag_ids: set[int] = {row.id for row in tag_rows}
+    project_tag_ids: set[int] = {
+        row.id for row in tag_rows
+        if row.name.startswith("project:") and row.name.count(":") == 1
+    }
+
+    # Build subquery for cluster-sibling image IDs
+    if project_tag_ids:
+        sibling_ids_subq = (
+            select(models.ImageTag.image_id)
+            .where(models.ImageTag.tag_id.in_(project_tag_ids))
+            .where(models.ImageTag.image_id.notin_(image_ids))
+        )
+    else:
+        # No cluster membership — fall back to all other images
+        sibling_ids_subq = select(models.Image.id).where(
+            models.Image.id.notin_(image_ids)
+        )
+
+    # Count tag frequency across sibling images, excluding already-present and project tags
+    freq_query = (
+        db.query(
+            models.Tag.id,
+            models.Tag.name,
+            func.count(models.ImageTag.image_id).label("freq"),
+        )
+        .join(models.ImageTag, models.Tag.id == models.ImageTag.tag_id)
+        .filter(models.ImageTag.image_id.in_(sibling_ids_subq))
+        .filter(~models.Tag.name.startswith("project:"))
+    )
+    if existing_tag_ids:
+        freq_query = freq_query.filter(models.Tag.id.notin_(list(existing_tag_ids)))
+    freq_query = (
+        freq_query
+        .group_by(models.Tag.id, models.Tag.name)
+        .order_by(func.count(models.ImageTag.image_id).desc())
+        .limit(limit)
+    )
+
+    return [
+        schemas.TagSuggestion(id=row.id, name=row.name, frequency=row.freq)
+        for row in freq_query.all()
+    ]
+
+
 @router.get("/{image_id}", response_model=schemas.Image)
 def get_image(image_id: int, db: Session = Depends(get_db)):
     img = db.query(models.Image).filter(models.Image.id == image_id).first()

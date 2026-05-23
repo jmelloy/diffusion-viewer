@@ -114,3 +114,11 @@ export interface DateBucket {
 
 export type SortBy = 'date_taken' | 'created_at' | 'updated_at' | 'rating' | 'filename'
 export type SortDir = 'asc' | 'desc'
+
+// --- Tag suggestions ------------------------------------------------------
+
+export interface TagSuggestion {
+  id: number
+  name: string
+  frequency: number
+}
