@@ -188,17 +188,23 @@ def tag_suggestions(
         if row.name.startswith("project:") and row.name.count(":") == 1
     }
 
-    # Build subquery for cluster-sibling image IDs
+    # Build subquery for cluster-sibling image IDs (visible images only)
     if project_tag_ids:
         sibling_ids_subq = (
             select(models.ImageTag.image_id)
+            .join(models.Image, models.Image.id == models.ImageTag.image_id)
             .where(models.ImageTag.tag_id.in_(project_tag_ids))
             .where(models.ImageTag.image_id.notin_(image_ids))
+            .where(models.Image.hidden == False)
+            .where(models.Image.deleted_at == None)
         )
     else:
-        # No cluster membership — fall back to all other images
-        sibling_ids_subq = select(models.Image.id).where(
-            models.Image.id.notin_(image_ids)
+        # No cluster membership — fall back to all other visible images
+        sibling_ids_subq = (
+            select(models.Image.id)
+            .where(models.Image.id.notin_(image_ids))
+            .where(models.Image.hidden == False)
+            .where(models.Image.deleted_at == None)
         )
 
     # Count tag frequency across sibling images, excluding already-present and project tags

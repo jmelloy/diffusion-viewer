@@ -172,3 +172,41 @@ def test_multiple_selected_images(client):
     assert names[0] == "mood:dark"
     assert "style:noir" in names
     assert all(not n.startswith("project:") for n in names)
+
+
+def test_hidden_and_deleted_siblings_excluded(client):
+    """Tags on hidden or soft-deleted cluster siblings must not appear in suggestions."""
+    from datetime import datetime
+
+    c, engine = client
+    with Session(engine) as db:
+        project_tag = models.Tag(name="project:myproject")
+        tag_visible = models.Tag(name="mood:happy")
+        tag_hidden = models.Tag(name="mood:grim")
+        tag_deleted = models.Tag(name="mood:eerie")
+        db.add_all([project_tag, tag_visible, tag_hidden, tag_deleted])
+        db.flush()
+
+        img_sel = _make_image("selected.png")
+        img_visible = _make_image("visible_sibling.png")
+        img_hidden = _make_image("hidden_sibling.png")
+        img_deleted = _make_image("deleted_sibling.png")
+        db.add_all([img_sel, img_visible, img_hidden, img_deleted])
+        db.flush()
+
+        img_sel.tags = [project_tag]
+        img_visible.tags = [project_tag, tag_visible]
+        img_hidden.tags = [project_tag, tag_hidden]
+        img_hidden.hidden = True
+        img_deleted.tags = [project_tag, tag_deleted]
+        img_deleted.deleted_at = datetime(2024, 1, 1)
+        db.commit()
+
+        selected_id = img_sel.id
+
+    res = c.get(f"/api/images/tag-suggestions?image_ids={selected_id}")
+    assert res.status_code == 200
+    names = [s["name"] for s in res.json()]
+    assert "mood:happy" in names
+    assert "mood:grim" not in names
+    assert "mood:eerie" not in names
